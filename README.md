@@ -4,19 +4,20 @@
 
 ## 后端（`backend/`）
 
-1. 创建虚拟环境并安装依赖：
+依赖以 **`backend/pyproject.toml`** 为准，**`backend/uv.lock`** 锁定版本（uv 使用）；**`backend/requirements.txt`** 为与前者保持一致的**简版列表**，供 **`pip install -r`**（未使用 uv 时）。详细命令见 **[`backend/README.md`](backend/README.md)**。
+
+1. 安装 [uv](https://docs.astral.sh/uv/) 后，进入 `backend` 并安装依赖（会创建 `.venv` 并以可编辑模式安装本包，**无需**再设置 `PYTHONPATH`）：
 
    ```bash
    cd backend
-   python -m venv .venv
-   source .venv/bin/activate   # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
+   uv sync
    ```
 
 2. 在 **`backend/.env`**（与 `app/` 同级）中配置环境变量（已固定从该路径读取，与你在哪个目录执行 `uvicorn` 无关）：
 
    - `DATABASE_URL`：异步驱动为 `mysql+aiomysql://...`；密码中的 `!` 等字符需 **URL 编码**（例如 `!` → `%21`）。若出现 MySQL `1045 Access denied`，说明库地址或密码与 `DATABASE_URL` 不一致。
-   - `FERNET_KEY`：运行 `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成。
+   - `FERNET_KEY`：在 `backend` 下执行  
+     `uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成。
    - `JWT_SECRET`：随机长字符串。
 
 3. MySQL 建库（示例）：
@@ -25,25 +26,24 @@
    CREATE DATABASE IF NOT EXISTS kb_copilot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
    ```
 
-4. 迁移：
+4. 数据库迁移（**Alembic**，在 `backend` 目录执行）：
 
    ```bash
-   export PYTHONPATH=.
-   alembic upgrade head
+   uv run alembic upgrade head
    ```
 
-   若你拉取代码后出现新的迁移（如忘记密码相关表），请再次执行 `alembic upgrade head`。
+   若你拉取代码后出现新的迁移（如忘记密码相关表），请再次执行上述命令。
 
-5. 启动（在 `backend` 目录、已激活 `.venv`）：
+5. 启动 **Uvicorn**（ASGI，在 `backend` 目录执行）：
 
    ```bash
-   source .venv/bin/activate
-   export PYTHONPATH=.
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
    ```
 
    健康检查：<http://127.0.0.1:8000/health>  
    API 前缀：`/api/v1`（例如 `/api/v1/auth/login`）。
+
+**不使用 uv 时**：`cd backend && python -m venv .venv && source .venv/bin/activate`（Windows 使用 `.venv\Scripts\activate`），再 `pip install -r requirements.txt`，然后 `alembic upgrade head` 与 `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`（此时若导入失败可设 `export PYTHONPATH=.`）。
 
 ### 忘记密码
 
@@ -123,7 +123,7 @@
    可选注释掉或保留 `QDRANT_PATH`（未设置 `QDRANT_URL` 时仍使用嵌入式）。
 
 4. **切换说明**：嵌入式与 Docker 里的数据**不是**同一套；切换后需重新上传文档，或自行迁移/导出导入。  
-5. **查看向量**：`export PYTHONPATH=. && python scripts/inspect_qdrant.py`（Docker 模式下可与 uvicorn 同时运行）。
+5. **查看向量**：在 `backend` 下执行 `uv run python scripts/inspect_qdrant.py`（Docker 模式下可与 uvicorn 同时运行）。
 
 若曾用其他向量维度写入过 Qdrant，更换模型维度后请**清空**嵌入式目录或删除 Docker 中的同名 collection，或修改 `QDRANT_COLLECTION` 名称，否则入库可能失败。
 

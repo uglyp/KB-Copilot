@@ -1,4 +1,7 @@
-# KB-Copilot backend (FastAPI)
+# KB-Copilot backend（FastAPI）
+# 与 pyproject.toml 中 [project].dependencies 保持一致；供 pip / 未安装 uv 的环境使用。
+# 精确可复现安装请用 uv：uv sync（依据 uv.lock）。
+
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
