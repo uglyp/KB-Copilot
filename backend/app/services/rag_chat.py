@@ -1,0 +1,207 @@
+"""
+RAG 对话核心：向量检索（Qdrant）→ 拼上下文 → 调 LLM 流式输出 → 落库助手消息与引用。
+
+数据流简述：
+1. 用户问题做 embedding，在指定 `kb_id` 下做近邻搜索得到若干 chunk。
+2. `_build_context_from_hits`：优先读 MySQL `Chunk` 全文；缺失时用 Qdrant payload 里的 `text` 兜底。
+3. 将片段与近期历史一并塞进 chat messages，要求模型严格依据片段回答。
+4. `asyncio.to_thread(search_kb)`：Qdrant 客户端为同步 API，放到线程池避免阻塞 asyncio 事件循环。
+"""
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.models.entities import Chunk, Message
+from app.services.model_resolver import (
+    resolve_chat_model,
+    resolve_default_embedding,
+)
+from app.services.openai_compat import chat_completion_stream, embed_texts
+from app.services.qdrant_store import search_kb
+
+
+def _sse(data: dict[str, Any]) -> str:
+    """SSE 一行一个 JSON 事件（与前端解析约定一致）。"""
+    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _build_context_from_hits(
+    session: AsyncSession,
+    hits: list[dict[str, Any]],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """把向量检索结果转成「模型可读上下文」+「结构化引用列表」。
+
+    `chunk_db_id` / `chunk_id`：历史上 payload 字段名可能不一致，这里做兼容。
+    """
+    if not hits:
+        return [], []
+
+    raw_ids: list[int] = []
+    for h in hits:
+        pl = h.get("payload") or {}
+        cid = pl.get("chunk_db_id") if pl.get("chunk_db_id") is not None else pl.get("chunk_id")
+        if cid is not None:
+            raw_ids.append(int(cid))
+
+    seen: set[int] = set()
+    chunk_ids: list[int] = []
+    for cid in raw_ids:
+        if cid not in seen:
+            seen.add(cid)
+            chunk_ids.append(cid)
+
+    rows: dict[int, Chunk] = {}
+    if chunk_ids:
+        r = await session.execute(select(Chunk).where(Chunk.id.in_(chunk_ids)))
+        rows = {c.id: c for c in r.scalars().all()}
+
+    context_parts: list[str] = []
+    citations: list[dict[str, Any]] = []
+    seen_ctx: set[int] = set()
+
+    for h in hits:
+        pl = h.get("payload") or {}
+        cid_raw = pl.get("chunk_db_id") if pl.get("chunk_db_id") is not None else pl.get("chunk_id")
+        if cid_raw is None:
+            continue
+        cid = int(cid_raw)
+        if cid in seen_ctx:
+            continue
+
+        ch = rows.get(cid)
+        content: str | None = ch.content if ch is not None else None
+        if not content and pl.get("text"):
+            content = str(pl["text"])
+        if not content:
+            continue
+
+        seen_ctx.add(cid)
+        fn = pl.get("filename") or "?"
+        context_parts.append(f"[片段 id={cid} 来源文件={fn}] {content}")
+
+        citations.append(
+            {
+                "chunk_id": cid,
+                "doc_id": ch.doc_id if ch is not None else pl.get("doc_id"),
+                "excerpt": content[:500],
+                "source": "mysql_chunk" if ch is not None else "qdrant_payload",
+            }
+        )
+
+    return context_parts, citations
+
+
+async def stream_chat_reply(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    kb_id: int,
+    conversation_id: int,
+    user_text: str,
+    user_message_id: int,
+    top_k: int | None = None,
+    chat_model_id: int | None = None,
+) -> AsyncIterator[str]:
+    """异步生成器：`yield` 字符串片段（已格式化为 SSE 行），供 `StreamingResponse` 消费。"""
+    settings = get_settings()
+    if top_k is None:
+        top_k = settings.rag_top_k
+    emb_cfg = await resolve_default_embedding(session, user_id)
+    chat_cfg = await resolve_chat_model(session, user_id, chat_model_id)
+    if not chat_cfg:
+        yield _sse({"type": "error", "code": "CHAT_MODEL_NOT_READY"})
+        return
+
+    yield _sse({"type": "status", "phase": "embedding"})
+
+    hits: list[dict[str, Any]] = []
+    can_retrieve = settings.use_local_embedding or bool(emb_cfg)
+    if can_retrieve:
+        try:
+            q_emb = (await embed_texts(emb_cfg, [user_text]))[0]
+            yield _sse({"type": "status", "phase": "searching"})
+            # Qdrant Python 客户端为同步 IO，放在线程池避免长时间卡住 asyncio 事件循环
+            hits = await asyncio.to_thread(search_kb, kb_id, q_emb, top_k)
+        except Exception as e:  # noqa: BLE001
+            yield _sse(
+                {
+                    "type": "error",
+                    "code": f"知识库检索失败（向量或 Qdrant）：{str(e)[:400]}",
+                }
+            )
+            return
+
+    context_parts, citations = await _build_context_from_hits(session, hits)
+
+    if not context_parts:
+        if can_retrieve:
+            context_parts.append(
+                "(知识库中未检索到相关片段。请明确告知用户未命中，并避免编造事实。)"
+            )
+        else:
+            context_parts.append(
+                "(当前未配置向量能力，无法检索知识库；请直接根据常识回答用户问题，并说明无法访问知识库。)"
+            )
+
+    history_msgs = await _load_history(
+        session, conversation_id, limit=10, before_message_id=user_message_id
+    )
+
+    system = (
+        "你是知识库问答助手。请严格依据下方「知识库片段」作答。\n"
+        "若片段中含 Markdown 表格、列表（例如「推荐技术栈」中的前端/后端/语言），请从中归纳事实后再回答。\n"
+        "仅当片段中确实没有与问题相关的信息时，再明确说明「知识库片段中未找到」，不要编造。\n"
+        "不要编造片段中不存在的事实。"
+    )
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    messages.append({"role": "system", "content": "知识库片段：\n" + "\n\n".join(context_parts)})
+    for m in history_msgs:
+        messages.append({"role": m.role, "content": m.content})
+    messages.append({"role": "user", "content": user_text})
+
+    yield _sse({"type": "status", "phase": "generating"})
+
+    full: list[str] = []
+    async for token in chat_completion_stream(chat_cfg, messages):
+        full.append(token)
+        yield _sse({"type": "token", "content": token})
+
+    assistant_text = "".join(full)
+    asst = Message(
+        conversation_id=conversation_id,
+        role="assistant",
+        content=assistant_text,
+        citations_json=citations,
+    )
+    session.add(asst)
+    await session.flush()
+    yield _sse(
+        {
+            "type": "done",
+            "citations": citations,
+            "full_text": assistant_text,
+            "message_id": asst.id,
+        }
+    )
+
+
+async def _load_history(
+    session: AsyncSession,
+    conversation_id: int,
+    limit: int,
+    before_message_id: int | None = None,
+) -> list[Message]:
+    """取当前用户消息之前的若干条，按时间正序；`before_message_id` 排除本轮刚写入的用户消息。"""
+    q = select(Message).where(Message.conversation_id == conversation_id)
+    if before_message_id is not None:
+        q = q.where(Message.id < before_message_id)
+    r = await session.execute(q.order_by(Message.id.desc()).limit(limit))
+    rows = list(r.scalars().all())
+    rows.reverse()
+    return [m for m in rows if m.role in ("user", "assistant")]
