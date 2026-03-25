@@ -1,4 +1,4 @@
-# Secrets & local env
+# Secrets & local env（任意目录下的 .env；保留示例文件）
 .env
 .env.*
 !.env.example
@@ -8,10 +8,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 .Python
+# 虚拟环境：无斜杠前缀，匹配仓库内任意路径下的 .venv / venv
 .venv/
 venv/
 *.egg-info/
 .eggs/
+# 构建与打包产物（Python sdist/wheel 的 dist/、通用 build/；匹配任意层级同名目录）
 dist/
 build/
 .pytest_cache/
@@ -27,16 +29,17 @@ htmlcov/
 *.pyo
 *.pyd
 
-# Backend runtime data (Qdrant 向量库、上传文件，开发时自动生成)
+# Backend runtime data（Qdrant、上传文件，本地开发生成）
 backend/data/qdrant_local/
 backend/data/uploads/
 
-# ——— Frontend (Node / Vite / Vue) ———
+# ——— Frontend (Node / Vite / Vue 3) ———
+# 任意目录下的 node_modules（含 frontend/node_modules；根目录若装工具依赖也会被忽略）
 node_modules/
 frontend/dist/
 *.local
 
-# TypeScript incremental / project references
+# TypeScript 增量编译缓存（任意目录）
 *.tsbuildinfo
 
 # vue-tsc 从 vite.config.ts 生成的产物（源码以 vite.config.ts 为准）
@@ -53,5 +56,5 @@ frontend/vite.config.d.ts
 # Logs
 *.log
 
-# Documentation: any directory named docs anywhere in the tree (never push)
+# 任意名为 docs 的目录（不随仓库发布）
 **/docs/

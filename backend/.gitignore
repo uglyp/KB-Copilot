@@ -1,0 +1,13 @@
+# 与仓库根目录 ../.gitignore 配合使用。
+# 单独用 IDE 只打开 backend/ 时，常见忽略项仍生效（规则与根目录一致，非重复必需）。
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
