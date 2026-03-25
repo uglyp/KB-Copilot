@@ -2,10 +2,6 @@
 
 本仓库包含 **FastAPI 后端**与 **Vue 3 前端**。
 
-**本地开发（虚拟环境、依赖、启动 uvicorn、MySQL 迁移、Ollama 与本地模型）** 的完整说明见：**[`docs/LOCAL_DEV_AND_OLLAMA.md`](docs/LOCAL_DEV_AND_OLLAMA.md)**（若你通过 Git 克隆后没有 `docs/` 目录，说明该文档未纳入版本库，请使用本地备份或团队 Wiki 中的同名字稿）。下文为快速步骤；与长文档重复处以该文件为准。
-
-**后端架构、依赖分工、RAG 数据流与目录地图**：[`docs/BACKEND_TUTORIAL.md`](docs/BACKEND_TUTORIAL.md)（同上，若目录缺失请从备份获取；与上一文档互为补充：教程偏「理解与跟代码」，长手册偏「命令与排错」）。
-
 ## 后端（`backend/`）
 
 1. 创建虚拟环境并安装依赖：
