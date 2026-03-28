@@ -1,12 +1,15 @@
 <script setup lang="ts">
 // 知识库 CRUD + 文档上传列表（上传走 multipart，axios 会去掉 Content-Type 让浏览器带 boundary）
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { UploadFile } from "element-plus";
 import type { AxiosError } from "axios";
 import { Picture } from "@element-plus/icons-vue";
 import { http } from "@/api/http";
 import type { DocumentOut, KnowledgeBaseOut } from "@/api/types";
+import AiMarkdown from "@/components/ai/AiMarkdown.vue";
+
+type DocPreviewMode = "image" | "pdf" | "text" | "markdown";
 
 const kbs = ref<KnowledgeBaseOut[]>([]);
 const activeKbId = ref<number | null>(null);
@@ -17,7 +20,76 @@ const uploadLoading = ref(false);
 const kbForm = ref({ name: "", description: "" });
 const createKbVisible = ref(false);
 
+const previewVisible = ref(false);
+const previewLoading = ref(false);
+const previewObjectUrl = ref<string | null>(null);
+const previewTitle = ref("");
+const previewMode = ref<DocPreviewMode | null>(null);
+const previewTextContent = ref("");
+
 const activeKb = computed(() => kbs.value.find((k) => k.id === activeKbId.value));
+
+function revokePreviewUrl() {
+  if (previewObjectUrl.value) {
+    URL.revokeObjectURL(previewObjectUrl.value);
+    previewObjectUrl.value = null;
+  }
+}
+
+watch(previewVisible, (open) => {
+  if (!open) {
+    revokePreviewUrl();
+    previewLoading.value = false;
+    previewMode.value = null;
+    previewTextContent.value = "";
+  }
+});
+
+function getDocPreviewMode(row: DocumentOut): DocPreviewMode | null {
+  if (row.modality === "image") return "image";
+  if (row.modality !== "text") return null;
+  const name = row.filename.toLowerCase();
+  if (name.endsWith(".pdf")) return "pdf";
+  if (name.endsWith(".md") || name.endsWith(".markdown")) return "markdown";
+  if (name.endsWith(".txt")) return "text";
+  return null;
+}
+
+async function openDocPreview(row: DocumentOut) {
+  const mode = getDocPreviewMode(row);
+  if (!mode || !activeKbId.value) return;
+  revokePreviewUrl();
+  previewTextContent.value = "";
+  previewMode.value = mode;
+  previewTitle.value = row.filename;
+  previewVisible.value = true;
+  previewLoading.value = true;
+  const kbId = activeKbId.value;
+  const docId = row.id;
+  try {
+    const { data } = await http.get<Blob>(
+      `/knowledge-bases/${kbId}/documents/${docId}/file`,
+      { responseType: "blob" }
+    );
+    if (!previewVisible.value) return;
+    if (mode === "image" || mode === "pdf") {
+      const blob =
+        mode === "pdf" && (!data.type || !data.type.toLowerCase().includes("pdf"))
+          ? new Blob([data], { type: "application/pdf" })
+          : data;
+      previewObjectUrl.value = URL.createObjectURL(blob);
+    } else {
+      previewTextContent.value = await data.text();
+    }
+  } catch {
+    if (previewVisible.value) {
+      ElMessage.error("文档预览加载失败");
+      previewVisible.value = false;
+    }
+  } finally {
+    previewLoading.value = false;
+  }
+}
 
 async function loadKbs() {
   loading.value = true;
@@ -164,12 +236,16 @@ onMounted(loadKbs);
           <el-table v-if="activeKbId" :data="docs" stripe class="kb-table w-full">
             <el-table-column prop="filename" label="文件名" min-width="200">
               <template #default="{ row }">
-                <span class="inline-flex items-center gap-1.5">
-                  <el-icon v-if="row.modality === 'image'" class="text-primary" :title="'图像（OCR 入库）'">
+                <div class="kb-filename-cell">
+                  <el-icon
+                    v-if="row.modality === 'image'"
+                    class="kb-filename-icon text-primary"
+                    :title="'图像（OCR 入库）'"
+                  >
                     <Picture />
                   </el-icon>
-                  {{ row.filename }}
-                </span>
+                  <span class="kb-filename-text">{{ row.filename }}</span>
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="状态" width="120" />
@@ -178,9 +254,19 @@ onMounted(loadKbs);
                 <span class="err">{{ row.error_message }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="100">
+            <el-table-column label="操作" width="148">
               <template #default="{ row }">
-                <el-button link type="danger" @click="removeDoc(row)">删除</el-button>
+                <div class="kb-actions-cell">
+                  <el-button
+                    v-if="getDocPreviewMode(row)"
+                    link
+                    type="primary"
+                    @click="openDocPreview(row)"
+                  >
+                    预览
+                  </el-button>
+                  <el-button link type="danger" @click="removeDoc(row)">删除</el-button>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -188,6 +274,54 @@ onMounted(loadKbs);
         </div>
       </section>
     </div>
+
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewTitle || '文档预览'"
+      :width="previewMode === 'pdf' ? 'min(96vw, 960px)' : 'min(92vw, 800px)'"
+      :class="[
+        'kb-doc-preview-dialog',
+        previewMode === 'pdf' ? 'kb-doc-preview-dialog--pdf' : '',
+      ]"
+      destroy-on-close
+    >
+      <div
+        v-loading="previewLoading"
+        :class="[
+          'kb-preview-wrap min-h-[220px]',
+          previewMode === 'pdf' ? 'kb-preview-wrap--pdf' : '',
+        ]"
+      >
+        <el-image
+          v-if="previewMode === 'image' && previewObjectUrl"
+          :src="previewObjectUrl"
+          fit="contain"
+          class="kb-preview-image mx-auto flex max-h-[78vh] w-full justify-center"
+          :preview-src-list="[previewObjectUrl]"
+          preview-teleported
+        />
+        <iframe
+          v-else-if="previewMode === 'pdf' && previewObjectUrl"
+          class="kb-preview-pdf"
+          :src="previewObjectUrl"
+          title="PDF 预览"
+        />
+        <el-scrollbar
+          v-else-if="previewMode === 'markdown' && previewTextContent !== ''"
+          max-height="78vh"
+          class="rounded-md border border-border bg-muted/30 px-4 py-3"
+        >
+          <AiMarkdown :content="previewTextContent" />
+        </el-scrollbar>
+        <el-scrollbar
+          v-else-if="previewMode === 'text' && previewTextContent !== ''"
+          max-height="78vh"
+          class="rounded-md border border-border bg-muted/30"
+        >
+          <pre class="kb-preview-plain whitespace-pre-wrap break-words p-4 text-sm leading-relaxed">{{ previewTextContent }}</pre>
+        </el-scrollbar>
+      </div>
+    </el-dialog>
 
     <el-dialog v-model="createKbVisible" title="新建知识库" width="420px">
       <el-form label-width="80px">
@@ -213,5 +347,61 @@ onMounted(loadKbs);
 .err {
   color: var(--el-color-danger);
   font-size: 12px;
+}
+
+.kb-filename-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.kb-filename-icon {
+  flex-shrink: 0;
+  margin-top: 0.12rem;
+  font-size: 1rem;
+}
+
+.kb-filename-text {
+  min-width: 0;
+  flex: 1;
+  word-break: break-word;
+  line-height: 1.45;
+  font-size: 13px;
+  color: hsl(var(--foreground));
+}
+
+.kb-actions-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.125rem;
+  white-space: nowrap;
+}
+
+.kb-preview-plain {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: hsl(var(--foreground));
+}
+
+/* PDF：尽量占满视口高度（扣除弹窗标题、内边距与默认上边距） */
+.kb-preview-wrap--pdf {
+  min-height: calc(100vh - 10.5rem);
+}
+
+.kb-preview-pdf {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 10.5rem);
+  min-height: 36rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+}
+
+/* PDF 弹窗上移，少占顶部留白，给 iframe 更多可视高度 */
+:deep(.kb-doc-preview-dialog--pdf) {
+  margin-top: 5vh !important;
+  margin-bottom: 2vh;
 }
 </style>

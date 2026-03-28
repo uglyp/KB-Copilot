@@ -4,11 +4,13 @@
 删除文档时需同时删 MySQL 分块、Qdrant 点与磁盘文件，避免孤儿数据。
 """
 
+import mimetypes
 import os
 import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -151,6 +153,74 @@ async def upload_doc(
     r = await db.execute(select(Document).where(Document.id == doc.id))
     doc = r.scalar_one()
     return doc
+
+
+@router.get("/{kb_id}/documents/{doc_id}/file")
+async def get_doc_file(
+    kb_id: int,
+    doc_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    """返回原始文件流，供列表预览（图像与 PDF/TXT/Markdown 等文本文档）。"""
+    await _get_kb(db, kb_id, user.id)
+    r = await db.execute(
+        select(Document).where(Document.id == doc_id, Document.kb_id == kb_id)
+    )
+    doc = r.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    if doc.modality not in ("image", "text"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="该文档类型不支持预览"
+        )
+    settings = get_settings()
+    upload_root = Path(settings.upload_dir).resolve()
+    try:
+        file_path = Path(doc.storage_path).resolve()
+        file_path.relative_to(upload_root)
+    except ValueError:
+        raise HTTPException(status.HTTP_403_FORBIDDEN) from None
+    if not file_path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="文件不存在")
+
+    ext = file_path.suffix.lower()
+    guessed, _ = mimetypes.guess_type(doc.filename or str(file_path))
+
+    if doc.modality == "image":
+        media_type: str | None = (
+            guessed if guessed and guessed.startswith("image/") else None
+        )
+        if not media_type:
+            if ext == ".png":
+                media_type = "image/png"
+            elif ext in {".jpg", ".jpeg"}:
+                media_type = "image/jpeg"
+            elif ext == ".webp":
+                media_type = "image/webp"
+            elif ext == ".gif":
+                media_type = "image/gif"
+            elif ext == ".bmp":
+                media_type = "image/bmp"
+            else:
+                media_type = "application/octet-stream"
+    else:
+        if ext == ".pdf":
+            media_type = "application/pdf"
+        elif ext in {".md", ".markdown"}:
+            media_type = "text/markdown; charset=utf-8"
+        elif ext == ".txt":
+            media_type = "text/plain; charset=utf-8"
+        elif guessed:
+            media_type = guessed
+        else:
+            media_type = "application/octet-stream"
+
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=doc.filename or file_path.name,
+    )
 
 
 @router.delete("/{kb_id}/documents/{doc_id}")
