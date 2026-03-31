@@ -8,7 +8,9 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, Self
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 无论从哪里启动 uvicorn，都读取 backend/.env（避免 cwd 不是 backend 时用错默认数据库密码）
@@ -32,6 +34,8 @@ class Settings(BaseSettings):
     database_url: str = (
         "mysql+aiomysql://root:password@localhost:3306/kb_copilot"
     )
+    # 可选：mysql | postgresql，与 DATABASE_URL 前缀一致；不设则仅按 URL 推断
+    relational_db: Literal["mysql", "postgresql"] | None = None
 
     jwt_secret: str = "change-me-in-production-use-openssl-rand"
     jwt_algorithm: str = "HS256"
@@ -86,9 +90,38 @@ class Settings(BaseSettings):
     # 用于拼前端重置链接（当 password_reset_token_in_response 为 true 时返回 reset_url）
     password_reset_frontend_base: str = "http://localhost:5173"
 
+    @field_validator("database_url")
+    @classmethod
+    def database_url_must_use_supported_async_driver(cls, v: str) -> str:
+        if v.startswith("mysql+aiomysql://") or v.startswith("postgresql+asyncpg://"):
+            return v
+        raise ValueError(
+            "DATABASE_URL 须以 mysql+aiomysql:// 或 postgresql+asyncpg:// 开头（应用异步驱动）"
+        )
+
+    @model_validator(mode="after")
+    def relational_db_matches_url(self) -> Self:
+        if self.relational_db is None:
+            return self
+        if self.relational_db == "mysql" and not self.database_url.startswith("mysql+"):
+            raise ValueError("RELATIONAL_DB=mysql 与 DATABASE_URL 不一致")
+        if self.relational_db == "postgresql" and not self.database_url.startswith(
+            "postgresql+"
+        ):
+            raise ValueError("RELATIONAL_DB=postgresql 与 DATABASE_URL 不一致")
+        return self
+
     def sync_database_url(self) -> str:
-        """异步引擎用 aiomysql；Alembic 等同步脚本需换成 pymysql 驱动字符串。"""
-        return self.database_url.replace("+aiomysql", "+pymysql")
+        """Alembic 等同步脚本：异步 URL 映射为 pymysql / psycopg。"""
+        url = self.database_url
+        pairs: tuple[tuple[str, str], ...] = (
+            ("mysql+aiomysql://", "mysql+pymysql://"),
+            ("postgresql+asyncpg://", "postgresql+psycopg://"),
+        )
+        for async_prefix, sync_prefix in pairs:
+            if url.startswith(async_prefix):
+                return sync_prefix + url[len(async_prefix) :]
+        raise RuntimeError("sync_database_url：未识别的 database_url（校验应已拦截）")
 
 
 @lru_cache

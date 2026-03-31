@@ -32,6 +32,12 @@ def upgrade() -> None:
                 "ALTER TABLE chunks RENAME INDEX ix_chunks_qdrant_point_id TO ix_chunks_milvus_point_id"
             )
         )
+    elif bind.dialect.name == "postgresql":
+        op.execute(
+            sa.text(
+                "ALTER INDEX ix_chunks_qdrant_point_id RENAME TO ix_chunks_milvus_point_id"
+            )
+        )
 
 
 def downgrade() -> None:
@@ -40,6 +46,12 @@ def downgrade() -> None:
         op.execute(
             sa.text(
                 "ALTER TABLE chunks RENAME INDEX ix_chunks_milvus_point_id TO ix_chunks_qdrant_point_id"
+            )
+        )
+    elif bind.dialect.name == "postgresql":
+        op.execute(
+            sa.text(
+                "ALTER INDEX ix_chunks_milvus_point_id RENAME TO ix_chunks_qdrant_point_id"
             )
         )
     op.alter_column(

@@ -37,6 +37,13 @@ FastAPI 应用；依赖由 **`pyproject.toml`** 声明，**`uv.lock`** 锁定版
 
 复制 `backend/.env.example` 为 **`backend/.env`**（与 `app/` 同级）。说明见仓库根目录 `README.md` 后端章节。
 
+## 关系型数据库（MySQL / PostgreSQL 二选一）
+
+- 应用：`DATABASE_URL` 使用异步驱动 **`mysql+aiomysql://`** 或 **`postgresql+asyncpg://`**；可选 **`RELATIONAL_DB=mysql`** / **`postgresql`** 与 URL 一致时做校验。
+- Alembic：会自动映射为 **`mysql+pymysql`** / **`postgresql+psycopg`**，无需单独配置。
+- 从 MySQL 迁到 PostgreSQL：目标库先 `alembic upgrade head`，再用同步 URL 运行  
+  `scripts/sync_relational_data.py`（见脚本内说明与 `backend/.env.example` 注释）。
+
 ## 数据库迁移（Alembic）
 
 在 `backend/` 目录执行：
@@ -45,7 +52,7 @@ FastAPI 应用；依赖由 **`pyproject.toml`** 声明，**`uv.lock`** 锁定版
 uv run alembic upgrade head
 ```
 
-新建迁移（示例）：`uv run alembic revision --autogenerate -m "描述"`，再检查 `alembic/versions/` 后提交。
+新建迁移（示例）：`uv run alembic revision --autogenerate -m "描述"`，再检查 `alembic/versions/` 后提交；**若变更含方言差异**，请在两种库上各跑一遍 `upgrade head`（本地或 CI）后再合并。
 
 ## 启动（Uvicorn）
 

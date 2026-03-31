@@ -18,6 +18,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        bool_false = sa.false()
+    else:
+        bool_false = sa.text("0")
+
     op.create_table(
         "llm_usage_records",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -32,8 +38,12 @@ def upgrade() -> None:
         sa.Column("chat_prompt_tokens", sa.Integer(), nullable=True),
         sa.Column("chat_completion_tokens", sa.Integer(), nullable=True),
         sa.Column("chat_total_tokens", sa.Integer(), nullable=True),
-        sa.Column("embed_is_estimated", sa.Boolean(), nullable=False, server_default="0"),
-        sa.Column("chat_is_estimated", sa.Boolean(), nullable=False, server_default="0"),
+        sa.Column(
+            "embed_is_estimated", sa.Boolean(), nullable=False, server_default=bool_false
+        ),
+        sa.Column(
+            "chat_is_estimated", sa.Boolean(), nullable=False, server_default=bool_false
+        ),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

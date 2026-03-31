@@ -6,7 +6,7 @@
 
 自托管 **multimodal RAG** 知识库与流式对话：**FastAPI** · **Vue 3** · **Milvus**；PDF/文本与图片（**PaddleOCR**，可选）入库，**SSE** 流式回答；对话模型可接 **Ollama**、**DeepSeek** 等 OpenAI 兼容 API。
 
-**English:** Self-hosted **multimodal RAG** with **SSE** chat — **FastAPI**, **Vue 3**, **MySQL**, **Milvus**; **PDF/text** + **images** (optional **PaddleOCR**); **fastembed** or **OpenAI-compatible** embeddings; chat via **DeepSeek**, **Ollama**, or compatible providers.
+**English:** Self-hosted **multimodal RAG** with **SSE** chat — **FastAPI**, **Vue 3**, **MySQL** or **PostgreSQL**, **Milvus**; **PDF/text** + **images** (optional **PaddleOCR**); **fastembed** or **OpenAI-compatible** embeddings; chat via **DeepSeek**, **Ollama**, or compatible providers.
 
 **中文：** 以自托管为主，按 [多模态 RAG 路线图](docs/多模态RAG路线图.md) 持续扩展；当前为「知识库侧入库 + 文本向量检索 + 文本对话」闭环，企业级能力见下文「边界」。
 
@@ -21,7 +21,7 @@
 
 ## 技术栈
 
-`FastAPI` · `Vue 3` · `Vite` · `TypeScript` · `MySQL` · `Alembic` · `Milvus` · `fastembed` / OpenAI-compatible · `SSE` · [vue-element-plus-x](https://element-plus-x.com)
+`FastAPI` · `Vue 3` · `Vite` · `TypeScript` · `MySQL` / `PostgreSQL` · `Alembic` · `Milvus` · `fastembed` / OpenAI-compatible · `SSE` · [vue-element-plus-x](https://element-plus-x.com)
 
 ## 目录
 
@@ -38,7 +38,7 @@
 
 ## 最短快速开始
 
-需要 **[uv](https://docs.astral.sh/uv/)**、**MySQL**、**Node.js**。
+需要 **[uv](https://docs.astral.sh/uv/)**、**MySQL 或 PostgreSQL**（见 `backend/.env.example`）、**Node.js**。
 
 **终端 1 — 后端**
 
@@ -80,7 +80,7 @@ flowchart LR
     API[FastAPI]
   end
   subgraph data [Storage]
-    MySQL[(MySQL)]
+    RDB[(MySQL / PostgreSQL)]
     Milvus[(Milvus)]
   end
   subgraph models [LLM]
@@ -88,7 +88,7 @@ flowchart LR
     Emb[Embedding]
   end
   Vue -->|HTTP_SSE| API
-  API --> MySQL
+  API --> RDB
   API --> Milvus
   API --> Chat
   API --> Emb
@@ -107,7 +107,7 @@ flowchart LR
 ### 已实现功能
 
 - [x] **账户与安全**：注册/登录、JWT、忘记密码与重置页；令牌 **SHA256** 落库；生产需邮件/短信（开发可用 `.env` 返回 `reset_url`）。
-- [x] **知识库与文档**：知识库管理；PDF/纯文本上传、解析、分块、入库；元数据入 MySQL。
+- [x] **知识库与文档**：知识库管理；PDF/纯文本上传、解析、分块、入库；元数据入关系型库（MySQL / PostgreSQL）。
 - [x] **多模态入库（第一期）**：位图上传 → **PaddleOCR** → 与同文档流水线分块/向量化（`uv sync --extra image`）；`modality` / `extra_json`；Caption 字段预留，**当前以 OCR 为主**。
 - [x] **向量与检索**：单一 Milvus **文本向量** collection；**fastembed** 或 OpenAI 兼容 **embedding**；查询为文本向量检索，可按知识库过滤。
 - [x] **RAG 对话**：拼上下文；图像块带 **`[图像/OCR]`**；**SSE**；**`citations_json`** 引用。
@@ -149,10 +149,10 @@ flowchart LR
 
 1. `cd backend` 后 `uv sync`。
 2. 配置 **`backend/.env`**（与 `app/` 同级，路径固定）：
-   - `DATABASE_URL`：`mysql+aiomysql://...`；`!` 等需 URL 编码；`1045` 多为账号与 URL 不一致。
+   - `DATABASE_URL`：**MySQL** 用 `mysql+aiomysql://...`；**PostgreSQL** 用 `postgresql+asyncpg://...`。`!`、`@` 等需 URL 编码；`1045` 多为账号与 URL 不一致。可选 `RELATIONAL_DB=mysql` / `postgresql` 与 URL 一致时做校验。
    - `FERNET_KEY`：`uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
    - `JWT_SECRET`：足够长的随机串。
-3. 建库示例：`CREATE DATABASE IF NOT EXISTS kb_copilot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`
+3. 建库示例：MySQL：`CREATE DATABASE IF NOT EXISTS kb_copilot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`；PostgreSQL：`CREATE DATABASE kb_copilot;`（编码默认 UTF-8）。MySQL 与 PG 二选一即可。
 4. `uv run alembic upgrade head`（拉取新迁移后重跑）。
 5. `uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
 

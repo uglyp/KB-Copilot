@@ -2,8 +2,8 @@
 Alembic 迁移运行时配置（执行 `alembic upgrade head` 时会跑本文件）。
 
 和 `app/db/session.py` 的区别：
-- 应用运行时用 **异步** `create_async_engine` + aiomysql（适合 FastAPI 路由）。
-- Alembic CLI 是 **同步** 脚本，必须用 `create_engine` + pymysql（见 `Settings.sync_database_url()`）。
+- 应用运行时用 **异步** `create_async_engine`，驱动由 `DATABASE_URL` 决定（`mysql+aiomysql` / `postgresql+asyncpg`）。
+- Alembic CLI 是 **同步** 脚本，对应为 `mysql+pymysql` / `postgresql+psycopg`（见 `Settings.sync_database_url()`）。
 
 `target_metadata`：
 - Autogenerate（`alembic revision --autogenerate`）需要拿到所有 ORM 模型的表结构。
@@ -34,11 +34,14 @@ target_metadata = Base.metadata
 def run_migrations_offline() -> None:
     """`alembic upgrade head --sql` 等场景会走这里。"""
     url = get_settings().sync_database_url()
+    dialect_opts: dict = {}
+    if url.startswith("mysql+"):
+        dialect_opts["mysql_charset"] = "utf8mb4"
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"mysql_charset": "utf8mb4"},
+        dialect_opts=dialect_opts,
     )
 
     with context.begin_transaction():

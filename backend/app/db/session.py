@@ -1,8 +1,8 @@
 """
-异步数据库会话（SQLAlchemy 2.x + aiomysql）。
+异步数据库会话（SQLAlchemy 2.x）。
 
 概念速览：
-- `Engine`：连接池与方言（MySQL）的入口；应用进程内通常只有一个全局 `engine`。
+- `Engine`：连接池与方言（由 `DATABASE_URL` 决定：MySQL 用 aiomysql，PostgreSQL 用 asyncpg）的入口；应用进程内通常只有一个全局 `engine`。
 - `async_sessionmaker`：工厂函数，每次请求 `()` 得到一个 `AsyncSession`。
 - `expire_on_commit=False`：提交后 ORM 对象仍可读取已加载属性，避免懒加载在异步里踩坑。
 
