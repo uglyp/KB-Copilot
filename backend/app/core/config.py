@@ -6,6 +6,7 @@
 - `Path(__file__).resolve()`：定位「本文件」再向上找 `backend/.env`，不依赖你从哪个目录执行 `uvicorn`。
 """
 
+import inspect
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Self
@@ -15,12 +16,28 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def mysql_url_and_connect_args(database_url: str) -> tuple[str, dict[str, object]]:
-    """将 `allow_public_key_retrieval` 从 URL 查询串挪到 `connect_args`。
+def _filter_pymysql_connect_args(args: dict[str, object]) -> dict[str, object]:
+    """只保留当前已安装 pymysql 的 Connection 仍接受的参数。
 
-    部分 SQLAlchemy + aiomysql 版本会把查询参数误传给 `Connection`，触发
-    ``unexpected keyword argument 'allow_public_key_retrieval'``；经 connect_args
-    传入 pymysql/aiomysql 则正常。
+    PyMySQL 1.4+ 已移除 ``allow_public_key_retrieval``（改由握手流程处理公钥）；
+    若仍传入会触发 ``Connection.__init__() got an unexpected keyword argument``。
+    """
+    if not args:
+        return {}
+    try:
+        import pymysql.connections as pymysql_connections
+
+        accepted = inspect.signature(pymysql_connections.Connection.__init__).parameters
+    except (ImportError, TypeError, ValueError):
+        return args
+    return {k: v for k, v in args.items() if k in accepted}
+
+
+def mysql_url_and_connect_args(database_url: str) -> tuple[str, dict[str, object]]:
+    """处理 MySQL URL 查询串：去掉易引发 SQLAlchemy/pymysql 兼容性问题的参数。
+
+    - 将 ``allow_public_key_retrieval`` 从 URL 中剥离（避免被误传给 SQLAlchemy Connection）。
+    - 若当前 pymysql 仍支持该参数，则放入 ``connect_args``；否则丢弃（PyMySQL 1.4+ 通常无需）。
     """
     if not (
         database_url.startswith("mysql+aiomysql://")
@@ -29,15 +46,16 @@ def mysql_url_and_connect_args(database_url: str) -> tuple[str, dict[str, object
         return database_url, {}
     parsed = urlparse(database_url)
     qsl = parse_qsl(parsed.query, keep_blank_values=True)
-    connect_args: dict[str, object] = {}
+    raw_connect: dict[str, object] = {}
     kept: list[tuple[str, str]] = []
     for k, v in qsl:
         if k == "allow_public_key_retrieval":
-            connect_args[k] = str(v).lower() in ("true", "1", "yes", "on")
+            raw_connect[k] = str(v).lower() in ("true", "1", "yes", "on")
         else:
             kept.append((k, v))
     new_query = urlencode(kept)
     clean = urlunparse(parsed._replace(query=new_query))
+    connect_args = _filter_pymysql_connect_args(raw_connect)
     return clean, connect_args
 
 
