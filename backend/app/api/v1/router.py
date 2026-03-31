@@ -2,10 +2,11 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, conversations, knowledge, user_models
+from app.api.v1 import auth, conversations, knowledge, usage, user_models
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(user_models.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(conversations.router)
+api_router.include_router(usage.router)

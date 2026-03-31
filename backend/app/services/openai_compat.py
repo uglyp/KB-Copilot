@@ -2,11 +2,12 @@
 通过 HTTP 调用「OpenAI 兼容」接口（`/v1/embeddings`、`/v1/chat/completions`）。
 
 - 使用 `httpx.AsyncClient`：与 FastAPI 同为异步栈，适合高并发。
-- `stream=True` 时按行解析 SSE 风格响应（`data: {...}`），累加 `delta.content`。
+- `stream=True` 时按行解析 SSE；解析 `delta.content`，并在末包提取 `usage`（若存在）。
 - 本地向量开启时走 `local_embed`，不访问远程 embedding API。
 """
 
 import json
+from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import httpx
@@ -14,6 +15,10 @@ import httpx
 from app.core.config import get_settings
 from app.services.local_embed import embed_texts_local
 from app.services.model_resolver import ResolvedOpenAICompat
+from app.services.usage_tokens import (
+    estimate_embed_usage_for_texts,
+    parse_embedding_usage,
+)
 
 
 def _openai_v1_base(api_base: str) -> str:
@@ -26,13 +31,23 @@ def _openai_v1_base(api_base: str) -> str:
     return f"{b}/v1"
 
 
+@dataclass
+class EmbeddingUsageInfo:
+    """单次 embed 调用的 token 统计（远程 API 或本地估算）。"""
+    prompt_tokens: int
+    total_tokens: int
+    is_estimated: bool
+
+
 async def embed_texts(
     cfg: ResolvedOpenAICompat | None, texts: list[str]
-) -> list[list[float]]:
-    """本地向量（USE_LOCAL_EMBEDDING=true）时忽略 cfg；否则必须提供 OpenAI 兼容 embedding 配置。"""
+) -> tuple[list[list[float]], EmbeddingUsageInfo]:
+    """返回向量与用量；本地 fastembed 时 `is_estimated=True`。"""
     settings = get_settings()
     if settings.use_local_embedding:
-        return await embed_texts_local(texts)
+        vecs = await embed_texts_local(texts)
+        p, t = estimate_embed_usage_for_texts(texts)
+        return vecs, EmbeddingUsageInfo(prompt_tokens=p, total_tokens=t, is_estimated=True)
     if not cfg:
         raise ValueError("embedding 未配置：请设置 USE_LOCAL_EMBEDDING=true 或配置默认向量模型")
     url = f"{_openai_v1_base(cfg.api_base)}/embeddings"
@@ -40,20 +55,26 @@ async def embed_texts(
     if cfg.extra_headers:
         headers.update(cfg.extra_headers)
     payload = {"model": cfg.model_id, "input": texts}
-    # connect 超时避免错误 base 时长时间挂死；read 给足时间给大 batch
     t = httpx.Timeout(120.0, connect=30.0)
     async with httpx.AsyncClient(timeout=t) as client:
         r = await client.post(url, headers=headers, json=payload)
         r.raise_for_status()
         data = r.json()
-    return [d["embedding"] for d in data["data"]]
+    vecs = [d["embedding"] for d in data["data"]]
+    pt, tt = parse_embedding_usage(data.get("usage"))
+    if pt is None and tt is None:
+        p2, t2 = estimate_embed_usage_for_texts(texts)
+        return vecs, EmbeddingUsageInfo(prompt_tokens=p2, total_tokens=t2, is_estimated=True)
+    p_final = pt if pt is not None else 0
+    t_final = tt if tt is not None else p_final
+    return vecs, EmbeddingUsageInfo(prompt_tokens=p_final, total_tokens=t_final, is_estimated=False)
 
 
 async def chat_completion_stream(
     cfg: ResolvedOpenAICompat,
     messages: list[dict[str, str]],
-) -> AsyncIterator[str]:
-    """流式：逐段 yield 文本 token（字符串）。"""
+) -> AsyncIterator[str | dict[str, Any]]:
+    """流式：多数 yield 为文本片段；流结束后若有 usage 则再 yield `{"usage": {...}}`。"""
     url = f"{_openai_v1_base(cfg.api_base)}/chat/completions"
     headers = {"Authorization": f"Bearer {cfg.api_key}", "Content-Type": "application/json"}
     if cfg.extra_headers:
@@ -63,6 +84,7 @@ async def chat_completion_stream(
         "messages": messages,
         "stream": True,
     }
+    last_usage: dict[str, Any] | None = None
     async with httpx.AsyncClient(timeout=120.0) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
             resp.raise_for_status()
@@ -75,8 +97,10 @@ async def chat_completion_stream(
                         break
                     try:
                         obj = json.loads(data)
+                        u = obj.get("usage")
+                        if isinstance(u, dict) and u:
+                            last_usage = u
                         delta = obj["choices"][0].get("delta") or {}
-                        # OpenAI 兼容；推理模型可能只有 reasoning_content，无 content
                         piece = delta.get("content") or ""
                         if not piece and delta.get("reasoning_content"):
                             piece = str(delta["reasoning_content"])
@@ -84,6 +108,8 @@ async def chat_completion_stream(
                             yield piece
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
+    if last_usage is not None:
+        yield {"usage": last_usage}
 
 
 async def probe_chat(cfg: ResolvedOpenAICompat) -> None:

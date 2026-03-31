@@ -81,7 +81,7 @@ async def process_document_ingestion(session: AsyncSession, doc_id: int) -> None
         await session.flush()
         delete_by_doc_id(doc.id)
 
-        embeddings = await embed_texts(cfg, parts)
+        embeddings, _ = await embed_texts(cfg, parts)
 
         chunk_modality = "image" if doc.modality == "image" else "text"
         new_chunks: list[Chunk] = []

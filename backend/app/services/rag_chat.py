@@ -18,13 +18,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.entities import Chunk, Message
+from app.models.entities import Chunk, LlmUsageRecord, Message
 from app.services.model_resolver import (
     resolve_chat_model,
     resolve_default_embedding,
 )
 from app.services.openai_compat import chat_completion_stream, embed_texts
 from app.services.milvus_store import search_kb
+from app.services.usage_tokens import (
+    estimate_chat_completion_tokens,
+    estimate_chat_prompt_tokens,
+    infer_endpoint_kind,
+    parse_openai_usage,
+)
 
 
 def _sse(data: dict[str, Any]) -> str:
@@ -129,12 +135,20 @@ async def stream_chat_reply(
 
     hits: list[dict[str, Any]] = []
     can_retrieve = settings.use_local_embedding or bool(emb_cfg)
+    embed_pt: int | None = None
+    embed_tt: int | None = None
+    embed_est = False
     if can_retrieve:
         try:
-            q_emb = (await embed_texts(emb_cfg, [user_text]))[0]
+            q_emb, eu = await embed_texts(emb_cfg, [user_text])
+            embed_pt, embed_tt = eu.prompt_tokens, eu.total_tokens
+            embed_est = eu.is_estimated
             yield _sse({"type": "status", "phase": "searching"})
+            # embed_texts 返回的是「每条文本一个向量」的列表；search_kb 需要单个 float 向量
+            if not q_emb:
+                raise ValueError("embedding 未返回向量")
             # pymilvus 为同步 IO，放在线程池避免长时间卡住 asyncio 事件循环
-            hits = await asyncio.to_thread(search_kb, kb_id, q_emb, top_k)
+            hits = await asyncio.to_thread(search_kb, kb_id, q_emb[0], top_k)
         except Exception as e:  # noqa: BLE001
             yield _sse(
                 {
@@ -175,10 +189,14 @@ async def stream_chat_reply(
     yield _sse({"type": "status", "phase": "generating"})
 
     full: list[str] = []
+    chat_usage_raw: dict[str, Any] | None = None
     try:
-        async for token in chat_completion_stream(chat_cfg, messages):
-            full.append(token)
-            yield _sse({"type": "token", "content": token})
+        async for item in chat_completion_stream(chat_cfg, messages):
+            if isinstance(item, dict) and "usage" in item:
+                chat_usage_raw = item["usage"] if isinstance(item["usage"], dict) else None
+                continue
+            full.append(str(item))
+            yield _sse({"type": "token", "content": str(item)})
     except httpx.HTTPStatusError as e:
         hint = ""
         if e.response.status_code == 404 and "11434" in str(chat_cfg.api_base):
@@ -201,6 +219,23 @@ async def stream_chat_reply(
         return
 
     assistant_text = "".join(full)
+    pt, ct, tt = parse_openai_usage(chat_usage_raw)
+    chat_est = False
+    if not chat_usage_raw:
+        chat_est = True
+    if pt is None:
+        pt = estimate_chat_prompt_tokens(messages)
+        if chat_usage_raw:
+            chat_est = True
+    if ct is None:
+        ct = estimate_chat_completion_tokens(assistant_text)
+        if chat_usage_raw:
+            chat_est = True
+    if tt is None:
+        tt = pt + ct
+        if chat_usage_raw:
+            chat_est = True
+
     asst = Message(
         conversation_id=conversation_id,
         role="assistant",
@@ -209,12 +244,42 @@ async def stream_chat_reply(
     )
     session.add(asst)
     await session.flush()
+
+    session.add(
+        LlmUsageRecord(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+            assistant_message_id=asst.id,
+            chat_model_id=chat_cfg.llm_model_id,
+            endpoint_kind=infer_endpoint_kind(chat_cfg.api_base),
+            embed_prompt_tokens=embed_pt if can_retrieve else None,
+            embed_total_tokens=embed_tt if can_retrieve else None,
+            chat_prompt_tokens=pt,
+            chat_completion_tokens=ct,
+            chat_total_tokens=tt,
+            embed_is_estimated=embed_est if can_retrieve else False,
+            chat_is_estimated=chat_est,
+        )
+    )
+
+    usage_out: dict[str, Any] = {
+        "endpoint_kind": infer_endpoint_kind(chat_cfg.api_base),
+        "embed_prompt_tokens": embed_pt if can_retrieve else None,
+        "embed_total_tokens": embed_tt if can_retrieve else None,
+        "embed_is_estimated": embed_est if can_retrieve else False,
+        "chat_prompt_tokens": pt,
+        "chat_completion_tokens": ct,
+        "chat_total_tokens": tt,
+        "chat_is_estimated": chat_est,
+    }
     yield _sse(
         {
             "type": "done",
             "citations": citations,
             "full_text": assistant_text,
             "message_id": asst.id,
+            "usage": usage_out,
         }
     )
 

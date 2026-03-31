@@ -197,6 +197,43 @@ class Message(Base):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class LlmUsageRecord(Base):
+    """单次用户问答轮次：检索侧 embedding + 对话 completion 的 token 用量（API 或估算）。"""
+
+    __tablename__ = "llm_usage_records"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    user_message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    assistant_message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), index=True
+    )
+    chat_model_id: Mapped[int | None] = mapped_column(
+        ForeignKey("llm_models.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    endpoint_kind: Mapped[str] = mapped_column(String(16))  # local | remote
+
+    embed_prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embed_total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chat_prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chat_completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chat_total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    embed_is_estimated: Mapped[bool] = mapped_column(Boolean, default=False)
+    chat_is_estimated: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class AuditLog(Base):
     """审计占位：可记录谁在何时对何种资源做了什么（扩展用）。"""
 

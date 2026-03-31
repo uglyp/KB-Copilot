@@ -20,6 +20,7 @@ class ResolvedOpenAICompat:
     api_key: str
     model_id: str
     extra_headers: dict[str, str] | None
+    llm_model_id: int | None = None
 
 
 async def resolve_default_chat(session: AsyncSession, user_id: int) -> ResolvedOpenAICompat | None:
@@ -61,6 +62,7 @@ async def resolve_chat_model(
         api_key=api_key,
         model_id=(m.model_id or "").strip(),
         extra_headers=headers,
+        llm_model_id=m.id,
     )
 
 
@@ -97,4 +99,5 @@ async def _resolve_default(
         api_key=api_key,
         model_id=(m.model_id or "").strip(),
         extra_headers=headers,
+        llm_model_id=m.id,
     )
