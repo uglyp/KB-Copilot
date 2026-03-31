@@ -1,5 +1,5 @@
 """
-文档入库：读文件 → 抽文本 → 固定窗口分块 → 批量 embedding → 写 MySQL `Chunk` + Qdrant 向量点。
+文档入库：读文件 → 抽文本 → 固定窗口分块 → 批量 embedding → 写 MySQL `Chunk` + Milvus 向量实体。
 
 失败路径必须 `rollback` 后再查 `Document` 更新 `failed`，否则 session 处于「待回滚」状态会抛 `PendingRollbackError`。
 """
@@ -18,7 +18,7 @@ from app.services.document_extract import extract_text_from_file
 from app.services.image_ingest import is_image_path, ocr_image_to_canonical
 from app.services.model_resolver import resolve_default_embedding
 from app.services.openai_compat import embed_texts
-from app.services.qdrant_store import delete_by_doc_id, upsert_chunks
+from app.services.milvus_store import delete_by_doc_id, upsert_chunks
 from app.services.text_chunking import chunk_text
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ async def process_document_ingestion(session: AsyncSession, doc_id: int) -> None
         chunk_modality = "image" if doc.modality == "image" else "text"
         new_chunks: list[Chunk] = []
         for idx, text in enumerate(parts):
-            # qdrant_point_id 有唯一索引；flush 前每条占位必须不同，写入 Qdrant 后再更新为真实 point id
+            # milvus_point_id 有唯一索引；flush 前每条占位必须不同，写入 Milvus 后再更新为真实 pk
             ch = Chunk(
                 doc_id=doc.id,
                 kb_id=doc.kb_id,
@@ -94,7 +94,7 @@ async def process_document_ingestion(session: AsyncSession, doc_id: int) -> None
                 content=text,
                 modality=chunk_modality,
                 extra_json=extra_base if chunk_modality == "image" else None,
-                qdrant_point_id=str(uuid.uuid4()),
+                milvus_point_id=str(uuid.uuid4()),
             )
             session.add(ch)
             new_chunks.append(ch)
@@ -119,7 +119,7 @@ async def process_document_ingestion(session: AsyncSession, doc_id: int) -> None
             db_ids,
         )
         for ch, pid in zip(new_chunks, point_ids, strict=True):
-            ch.qdrant_point_id = pid
+            ch.milvus_point_id = pid
 
         doc.status = "ready"
         doc.error_message = None

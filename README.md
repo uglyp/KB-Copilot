@@ -4,9 +4,9 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/uglyp/KB-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/uglyp/KB-Copilot/actions/workflows/ci.yml)
 
-自托管 **multimodal RAG** 知识库与流式对话：**FastAPI** · **Vue 3** · **Qdrant**；PDF/文本与图片（**PaddleOCR**，可选）入库，**SSE** 流式回答；对话模型可接 **Ollama**、**DeepSeek** 等 OpenAI 兼容 API。
+自托管 **multimodal RAG** 知识库与流式对话：**FastAPI** · **Vue 3** · **Milvus**；PDF/文本与图片（**PaddleOCR**，可选）入库，**SSE** 流式回答；对话模型可接 **Ollama**、**DeepSeek** 等 OpenAI 兼容 API。
 
-**English:** Self-hosted **multimodal RAG** with **SSE** chat — **FastAPI**, **Vue 3**, **MySQL**, **Qdrant**; **PDF/text** + **images** (optional **PaddleOCR**); **fastembed** or **OpenAI-compatible** embeddings; chat via **DeepSeek**, **Ollama**, or compatible providers.
+**English:** Self-hosted **multimodal RAG** with **SSE** chat — **FastAPI**, **Vue 3**, **MySQL**, **Milvus**; **PDF/text** + **images** (optional **PaddleOCR**); **fastembed** or **OpenAI-compatible** embeddings; chat via **DeepSeek**, **Ollama**, or compatible providers.
 
 **中文：** 以自托管为主，按 [多模态 RAG 路线图](docs/多模态RAG路线图.md) 持续扩展；当前为「知识库侧入库 + 文本向量检索 + 文本对话」闭环，企业级能力见下文「边界」。
 
@@ -14,19 +14,18 @@
 
 | 维度 | 说明 |
 | --- | --- |
-| 部署 | 自建数据与向量；Qdrant 默认嵌入式，亦可下文「Docker 版 Qdrant」 |
+| 部署 | 自建数据与向量；默认 **Milvus Lite** 本地 `.db`，亦可下文「Docker 版 Milvus」 |
 | RAG | 分块、向量化、召回、拼上下文；前端展示检索阶段（ThoughtChain 等） |
 | 多模态 | 图片经 **PaddleOCR** 入文本流水线（`uv sync --extra image`）；见下文「知识库图片」 |
 | 模型 | 多提供商与多 chat 模型；**Ollama** 与云端可并存 |
 
 ## 技术栈
 
-`FastAPI` · `Vue 3` · `Vite` · `TypeScript` · `MySQL` · `Alembic` · `Qdrant` · `fastembed` / OpenAI-compatible · `SSE` · [vue-element-plus-x](https://element-plus-x.com)
+`FastAPI` · `Vue 3` · `Vite` · `TypeScript` · `MySQL` · `Alembic` · `Milvus` · `fastembed` / OpenAI-compatible · `SSE` · [vue-element-plus-x](https://element-plus-x.com)
 
 ## 目录
 
 - [最短快速开始](#最短快速开始)
-- [截图](#截图)
 - [架构概要](#架构概要)
 - [功能状态](#功能状态)
 - [适合与当前边界](#适合与当前边界)
@@ -82,7 +81,7 @@ flowchart LR
   end
   subgraph data [Storage]
     MySQL[(MySQL)]
-    Qdrant[(Qdrant)]
+    Milvus[(Milvus)]
   end
   subgraph models [LLM]
     Chat[Chat_API]
@@ -90,7 +89,7 @@ flowchart LR
   end
   Vue -->|HTTP_SSE| API
   API --> MySQL
-  API --> Qdrant
+  API --> Milvus
   API --> Chat
   API --> Emb
 ```
@@ -110,7 +109,7 @@ flowchart LR
 - [x] **账户与安全**：注册/登录、JWT、忘记密码与重置页；令牌 **SHA256** 落库；生产需邮件/短信（开发可用 `.env` 返回 `reset_url`）。
 - [x] **知识库与文档**：知识库管理；PDF/纯文本上传、解析、分块、入库；元数据入 MySQL。
 - [x] **多模态入库（第一期）**：位图上传 → **PaddleOCR** → 与同文档流水线分块/向量化（`uv sync --extra image`）；`modality` / `extra_json`；Caption 字段预留，**当前以 OCR 为主**。
-- [x] **向量与检索**：单一 Qdrant **文本向量** collection；**fastembed** 或 OpenAI 兼容 **embedding**；查询为文本向量检索，可按知识库过滤。
+- [x] **向量与检索**：单一 Milvus **文本向量** collection；**fastembed** 或 OpenAI 兼容 **embedding**；查询为文本向量检索，可按知识库过滤。
 - [x] **RAG 对话**：拼上下文；图像块带 **`[图像/OCR]`**；**SSE**；**`citations_json`** 引用。
 - [x] **模型与集成**：多提供商；**DeepSeek** / **Ollama**；`.env` 可自动注入 Ollama；对话页切换模型（本地存储）。
 - [x] **前端**：会话列表、流式回答、检索进度、知识库与模型设置页。
@@ -194,21 +193,17 @@ flowchart LR
 3. 或 `.env`：`OLLAMA_BASE` + `OLLAMA_CHAT_MODEL`，重启后重新登录。
 4. 对话页可切换默认模型与 Ollama。
 
-#### Docker 版 Qdrant（可选）
+#### Docker 版 Milvus（可选）
 
-默认嵌入式 `QDRANT_PATH=./data/qdrant_local`。需要控制台或多实例时：
+默认 **Milvus Lite** 使用 `MILVUS_DB_PATH=./data/milvus_local.db`（与独立服务数据**不互通**）。需要多实例、控制台或更高吞吐时，可部署独立 Milvus，例如遵循官方文档 [Install Milvus Standalone with Docker](https://milvus.io/docs/install_standalone-docker.md) 使用 `docker compose` 启动后：
 
-```bash
-docker run -d --name qdrant -p 6333:6333 -p 6334:6334 \
-  -v "$(pwd)/qdrant_storage:/qdrant/storage" \
-  qdrant/qdrant:latest
-```
+- gRPC / SDK 常见端口：`19530`
+- `.env`：`MILVUS_URI=http://127.0.0.1:19530`（可选 `MILVUS_TOKEN` 用于鉴权或 Zilliz Cloud）
+- 巡检：`cd backend && uv run python scripts/inspect_milvus.py`
 
-- 控制台：<http://127.0.0.1:6333/dashboard>
-- `.env`：`QDRANT_URL=http://127.0.0.1:6333`（与嵌入式数据不互通）
-- 巡检：`uv run python scripts/inspect_qdrant.py`
+**自 Qdrant 迁移：** 需更新环境变量为 `MILVUS_*`，执行 `alembic upgrade head`（列名 `milvus_point_id`），并**重新入库**向量数据。
 
-更换 embedding 维度时请清空旧 collection 或改 `QDRANT_COLLECTION`。
+更换 embedding 维度时请删除旧 Milvus collection、清空本地 `.db` 或改 `MILVUS_COLLECTION` 后全量重建。
 
 ### 功能入口
 

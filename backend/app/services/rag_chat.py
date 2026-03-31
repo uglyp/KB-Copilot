@@ -1,11 +1,11 @@
 """
-RAG 对话核心：向量检索（Qdrant）→ 拼上下文 → 调 LLM 流式输出 → 落库助手消息与引用。
+RAG 对话核心：向量检索（Milvus）→ 拼上下文 → 调 LLM 流式输出 → 落库助手消息与引用。
 
 数据流简述：
 1. 用户问题做 embedding，在指定 `kb_id` 下做近邻搜索得到若干 chunk。
-2. `_build_context_from_hits`：优先读 MySQL `Chunk` 全文；缺失时用 Qdrant payload 里的 `text` 兜底。
+2. `_build_context_from_hits`：优先读 MySQL `Chunk` 全文；缺失时用 Milvus 命中里的 `text` 兜底。
 3. 将片段与近期历史一并塞进 chat messages，要求模型严格依据片段回答。
-4. `asyncio.to_thread(search_kb)`：Qdrant 客户端为同步 API，放到线程池避免阻塞 asyncio 事件循环。
+4. `asyncio.to_thread(search_kb)`：pymilvus 客户端为同步 API，放到线程池避免阻塞 asyncio 事件循环。
 """
 
 import asyncio
@@ -24,7 +24,7 @@ from app.services.model_resolver import (
     resolve_default_embedding,
 )
 from app.services.openai_compat import chat_completion_stream, embed_texts
-from app.services.qdrant_store import search_kb
+from app.services.milvus_store import search_kb
 
 
 def _sse(data: dict[str, Any]) -> str:
@@ -96,7 +96,7 @@ async def _build_context_from_hits(
             "chunk_id": cid,
             "doc_id": ch.doc_id if ch is not None else pl.get("doc_id"),
             "excerpt": content[:500],
-            "source": "mysql_chunk" if ch is not None else "qdrant_payload",
+            "source": "mysql_chunk" if ch is not None else "milvus_entity",
             "modality": modality,
         }
         citations.append(cit)
@@ -133,13 +133,13 @@ async def stream_chat_reply(
         try:
             q_emb = (await embed_texts(emb_cfg, [user_text]))[0]
             yield _sse({"type": "status", "phase": "searching"})
-            # Qdrant Python 客户端为同步 IO，放在线程池避免长时间卡住 asyncio 事件循环
+            # pymilvus 为同步 IO，放在线程池避免长时间卡住 asyncio 事件循环
             hits = await asyncio.to_thread(search_kb, kb_id, q_emb, top_k)
         except Exception as e:  # noqa: BLE001
             yield _sse(
                 {
                     "type": "error",
-                    "code": f"知识库检索失败（向量或 Qdrant）：{str(e)[:400]}",
+                    "code": f"知识库检索失败（向量或 Milvus）：{str(e)[:400]}",
                 }
             )
             return

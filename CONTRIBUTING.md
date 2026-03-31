@@ -25,7 +25,7 @@
 
 ## Issue
 
-- **Bug**：复现步骤、期望与实际行为、环境（OS、Python/Node 版本、是否 Docker Qdrant 等）、相关日志或截图。
+- **Bug**：复现步骤、期望与实际行为、环境（OS、Python/Node 版本、是否 Milvus Lite / Docker Milvus 等）、相关日志或截图。
 - **功能建议**：使用场景、是否愿意参与实现。
 
 安全相关问题请勿公开 Issue，请按 [SECURITY.md](SECURITY.md) 联系维护者。

@@ -1,7 +1,7 @@
 """
-知识库与文档：上传后 **同步** 调用入库流水线（解析 → 分块 → 向量 → Qdrant），便于接口直接返回最终 `status`。
+知识库与文档：上传后 **同步** 调用入库流水线（解析 → 分块 → 向量 → Milvus），便于接口直接返回最终 `status`。
 
-删除文档时需同时删 MySQL 分块、Qdrant 点与磁盘文件，避免孤儿数据。
+删除文档时需同时删 MySQL 分块、Milvus 实体与磁盘文件，避免孤儿数据。
 """
 
 import mimetypes
@@ -22,7 +22,7 @@ from sqlalchemy import delete
 
 from app.models.entities import Chunk, Document, KnowledgeBase, User
 from app.services.image_ingest import is_image_extension, verify_image_file
-from app.services.qdrant_store import delete_by_doc_id
+from app.services.milvus_store import delete_by_doc_id
 from app.workers.tasks import ingest_document_task
 
 router = APIRouter(prefix="/knowledge-bases", tags=["knowledge"])
@@ -143,7 +143,7 @@ async def upload_doc(
     )
     db.add(doc)
     await db.flush()
-    # 先提交，保证入库任务能读到该行；在同一次请求内 await 完成解析/向量/Qdrant，避免 BackgroundTasks 未执行或失败被吞导致永远 queued
+    # 先提交，保证入库任务能读到该行；在同一次请求内 await 完成解析/向量/Milvus，避免 BackgroundTasks 未执行或失败被吞导致永远 queued
     await db.commit()
     try:
         await ingest_document_task(doc.id)

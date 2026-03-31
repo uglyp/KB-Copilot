@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kb-copilot-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "KB-Copilot FastAPI backend (RAG / knowledge base)"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,13 +21,14 @@ dependencies = [
     "bcrypt>=4.1.0",
     "httpx>=0.26.0",
     "cryptography>=42.0.0",
-    # 1.12+ 移除 client.search()，代码已改用 query_points；勿锁回旧版
-    "qdrant-client>=1.12.0",
+    "pymilvus[milvus-lite]>=2.4.0",
     "pypdf>=4.0.0",
     "python-dotenv>=1.0.0",
     "greenlet>=3.0.0",
     "fastembed>=0.3.0",
     "Pillow>=10.0.0",
+    # milvus-lite 仍依赖 pkg_resources；setuptools 81+ 起弃用/移除趋势，锁在 80.x 以兼容 Lite
+    "setuptools>=70.0.0,<81",
 ]
 
 [project.optional-dependencies]

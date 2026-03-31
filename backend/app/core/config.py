@@ -40,10 +40,12 @@ class Settings(BaseSettings):
     # Fernet key: generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
     fernet_key: str = ""
 
-    # 二选一：不设 QDRANT_URL 时用本地嵌入式存储（path）；设了则连 Docker / 远程 Qdrant 服务（HTTP）
-    qdrant_url: str | None = None
-    qdrant_path: str = "./data/qdrant_local"
-    qdrant_collection: str = "kb_chunks"
+    # 二选一：不设 MILVUS_URI 时用 Milvus Lite 本地文件（MILVUS_DB_PATH）；设了则连独立 Milvus（HTTP/gRPC URI）
+    milvus_uri: str | None = None
+    milvus_db_path: str = "./data/milvus_local.db"
+    milvus_collection: str = "kb_chunks"
+    # 可选：Zilliz Cloud 或开启鉴权的 Milvus，如 user:password 或 API Key
+    milvus_token: str = ""
     embedding_dimensions: int = 1536
     # 对话 RAG：向量召回条数（略大有利于「技术栈/语言」等分散在表格中的描述）
     rag_top_k: int = 12

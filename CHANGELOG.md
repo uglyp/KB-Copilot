@@ -4,6 +4,21 @@
 
 **自动维护：** 推送 `main` 后可用 Release Please 根据约定式提交打开「发布 PR」并更新本文件与后端版本，见 [docs/CHANGELOG_AUTOMATION.md](docs/CHANGELOG_AUTOMATION.md)。
 
+## [0.2.0] - 2026-03-31
+
+### 破坏性变更
+
+- 向量存储由 **Qdrant** 切换为 **Milvus**：默认使用 **Milvus Lite**（本地 SQLite 文件，由 `pymilvus[milvus-lite]` 提供）；也可通过 `MILVUS_URI` 连接独立 Milvus 服务。
+- 环境变量需从 Qdrant 相关项改为 **`MILVUS_URI`**（可选）、**`MILVUS_DB_PATH`**、**`MILVUS_TOKEN`**、**`MILVUS_COLLECTION`** 等，详见 `backend/.env.example` 与 README。
+- 关系型库中 `chunks` 表字段由 `qdrant_point_id` 重命名为 **`milvus_point_id`**；升级需执行 `alembic upgrade head`。
+- **向量数据与 Qdrant 不兼容**，升级后需对知识库文档**重新入库**以写入 Milvus。
+
+### 变更
+
+- 移除 `qdrant-client` 与 `qdrant_store`；新增 `milvus_store` 封装检索、写入与按文档删除。
+- RAG 与入库流程改为调用 Milvus；本地调试脚本由 `inspect_qdrant` 替换为 **`inspect_milvus`**。
+- `.gitignore` 补充 Milvus Lite 数据路径及在 `backend/` 目录下偶发的临时 `tmpr*.db` 文件。
+
 ## [0.1.0] - 2026-03-30
 
 ### 新增

@@ -145,7 +145,7 @@ class Document(Base):
 
 
 class Chunk(Base):
-    """文本块：RAG 检索与引用的最小单位；`qdrant_point_id` 与向量库中的点 id 对应。"""
+    """文本块：RAG 检索与引用的最小单位；`milvus_point_id` 与 Milvus 集合主键 pk 对应。"""
 
     __tablename__ = "chunks"
 
@@ -156,7 +156,7 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text)
     modality: Mapped[str] = mapped_column(String(16), default="text")  # text | image
     extra_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    qdrant_point_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    milvus_point_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 
