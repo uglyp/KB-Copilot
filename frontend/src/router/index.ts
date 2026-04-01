@@ -1,5 +1,6 @@
 // 路由守卫：登录态、进入对话前拉模型就绪状态
 import { createRouter, createWebHistory } from "vue-router";
+import { ElMessage } from "element-plus";
 import { useAuthStore } from "@/stores/auth";
 import { useReadinessStore } from "@/stores/readiness";
 
@@ -52,6 +53,12 @@ const router = createRouter({
           component: () => import("@/views/AccountSettingsView.vue"),
         },
         {
+          path: "admin/system",
+          name: "admin-system",
+          component: () => import("@/views/AdminSystemView.vue"),
+          meta: { requiresAdmin: true },
+        },
+        {
           path: "knowledge",
           name: "knowledge",
           component: () => import("@/views/KnowledgeView.vue"),
@@ -96,6 +103,16 @@ router.beforeEach(async (to) => {
         name: "model-settings",
         query: { ...to.query, reason: "model" },
       };
+    }
+  }
+
+  if (to.meta.requiresAdmin) {
+    if (!auth.user) {
+      return { name: "login", query: { redirect: to.fullPath } };
+    }
+    if (!auth.isAdmin) {
+      ElMessage.warning("无系统管理权限");
+      return { path: "/knowledge" };
     }
   }
 

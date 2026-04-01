@@ -2,9 +2,18 @@
 // 当前用户企业权限：与后端 PATCH /auth/me、GET /auth/me 对齐
 import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
+import { useAclCatalogOptions } from "@/composables/useAclCatalogOptions";
 import { useAuthStore } from "@/stores/auth";
 
 const auth = useAuthStore();
+const {
+  branchSelectOptions,
+  orgSelectOptions,
+  deptSelectOptions,
+  securitySelectOptions,
+  fetchAcl,
+} = useAclCatalogOptions();
+
 const loading = ref(false);
 const saving = ref(false);
 
@@ -12,16 +21,9 @@ const form = reactive({
   branch: "公共",
   role: "user",
   security_level: 4,
-  departmentsText: "",
+  departmentTags: [] as string[],
   org_id: "",
 });
-
-const levelOptions = [
-  { value: 1, label: "1 · 公开（可见公开文档）" },
-  { value: 2, label: "2 · 内部" },
-  { value: 3, label: "3 · 敏感" },
-  { value: 4, label: "4 · 机密（可访问全部密级文档）" },
-];
 
 function fillFromUser() {
   const u = auth.user;
@@ -29,13 +31,14 @@ function fillFromUser() {
   form.branch = u.branch;
   form.role = u.role;
   form.security_level = u.security_level;
-  form.departmentsText = u.departments?.length ? u.departments.join("，") : "";
+  form.departmentTags = u.departments?.length ? [...u.departments] : [];
   form.org_id = u.org_id ?? "";
 }
 
 onMounted(async () => {
   loading.value = true;
   try {
+    await fetchAcl();
     await auth.fetchMe();
     fillFromUser();
   } finally {
@@ -47,13 +50,9 @@ async function save() {
   if (!auth.user) return;
   saving.value = true;
   try {
-    const parts = form.departmentsText
-      .split(/[,，;；\n]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const parts = form.departmentTags.map((s) => String(s).trim()).filter(Boolean);
     await auth.patchMe({
       branch: form.branch.trim() || "公共",
-      role: form.role.trim() || "user",
       security_level: form.security_level,
       departments: parts.length ? parts : [],
       org_id: form.org_id.trim() || null,
@@ -72,8 +71,8 @@ async function save() {
   <div class="account-page space-y-4">
     <p class="page-title">账户与权限</p>
     <p class="hint text-sm text-slate-500">
-      分行、密级与部门用于控制您能看到的文档与 RAG 检索范围；修改后将自动刷新登录令牌。
-      与知识库「组织 ID」一致时可访问对方设为组织共享的知识库。
+      选项与「系统管理」中的字典同步，可搜索或输入自定义值；分行、密级与部门用于 RAG
+      可见范围，修改后将刷新令牌。组织 ID 与知识库「组织共享」一致时可协作。
     </p>
 
     <el-card v-loading="loading" class="max-w-xl" shadow="never">
@@ -82,18 +81,29 @@ async function save() {
           <el-input :model-value="auth.user?.username" disabled />
         </el-form-item>
         <el-form-item label="分行 / 机构" required>
-          <el-input
+          <el-select
             v-model="form.branch"
-            placeholder="如：上海浦东分行；「公共」表示与全行公开文档匹配"
-          />
+            class="w-full"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="选择或输入分行标签"
+          >
+            <el-option
+              v-for="o in branchSelectOptions"
+              :key="o.value"
+              :label="o.label"
+              :value="o.value"
+            />
+          </el-select>
         </el-form-item>
-        <el-form-item label="角色标识">
-          <el-input v-model="form.role" placeholder="如：client_manager（便于对接 IAM）" />
+        <el-form-item label="角色">
+          <el-input :model-value="form.role" disabled placeholder="由管理员在系统管理中设置" />
         </el-form-item>
         <el-form-item label="密级上限">
           <el-select v-model="form.security_level" class="w-full">
             <el-option
-              v-for="opt in levelOptions"
+              v-for="opt in securitySelectOptions"
               :key="opt.value"
               :label="opt.label"
               :value="opt.value"
@@ -101,18 +111,42 @@ async function save() {
           </el-select>
         </el-form-item>
         <el-form-item label="所属部门">
-          <el-input
-            v-model="form.departmentsText"
-            type="textarea"
-            :rows="2"
-            placeholder="多个部门可用中文或英文逗号分隔；留空表示不按部门限制匹配"
-          />
+          <el-select
+            v-model="form.departmentTags"
+            class="w-full"
+            multiple
+            filterable
+            allow-create
+            default-first-option
+            collapse-tags
+            collapse-tags-tooltip
+            placeholder="多选字典部门或输入自定义编码"
+          >
+            <el-option
+              v-for="o in deptSelectOptions"
+              :key="o.value"
+              :label="o.label"
+              :value="o.value"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="组织 ID">
-          <el-input
+          <el-select
             v-model="form.org_id"
-            placeholder="与知识库「组织共享」一致时可协作；留空表示仅个人知识库"
-          />
+            class="w-full"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="选择或输入组织编码"
+          >
+            <el-option
+              v-for="o in orgSelectOptions"
+              :key="o.value"
+              :label="o.label"
+              :value="o.value"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" native-type="submit" :loading="saving">

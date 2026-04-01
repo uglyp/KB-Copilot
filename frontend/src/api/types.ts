@@ -38,6 +38,8 @@ export interface MeUser {
   security_level: number;
   departments: string[];
   org_id: string | null;
+  /** 停用后无法登录；由管理员在系统管理中维护 */
+  is_active?: boolean;
 }
 
 export interface MePatchResponse extends MeUser {
@@ -80,4 +82,84 @@ export interface MessageOut {
   role: string;
   content: string;
   citations_json: Array<Record<string, unknown>> | null;
+}
+
+/** GET /admin/users */
+export interface AdminUserOut {
+  id: number;
+  username: string;
+  branch: string;
+  role: string;
+  security_level: number;
+  departments: string[];
+  org_id: string | null;
+  is_active: boolean;
+}
+
+export interface SysOrganizationOut {
+  id: number;
+  org_code: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+}
+
+export interface SysBranchOut {
+  id: number;
+  code: string;
+  name: string;
+  sort_order: number;
+  enabled: boolean;
+}
+
+export interface SysDepartmentOut {
+  id: number;
+  code: string;
+  name: string;
+  org_code: string | null;
+  enabled: boolean;
+}
+
+export interface SysRoleOut {
+  id: number;
+  code: string;
+  display_name: string;
+  description: string | null;
+  enabled: boolean;
+}
+
+export interface SysSecurityLevelOut {
+  level: number;
+  label: string;
+  description: string | null;
+  sort_order: number;
+}
+
+/** GET /acl-catalog（无需登录） */
+export interface AclCatalogBranch {
+  code: string;
+  name: string;
+}
+
+export interface AclCatalogOrganization {
+  org_code: string;
+  name: string;
+}
+
+export interface AclCatalogDepartment {
+  code: string;
+  name: string;
+  org_code: string | null;
+}
+
+export interface AclCatalogSecurityLevel {
+  level: number;
+  label: string;
+}
+
+export interface AclCatalogOut {
+  branches: AclCatalogBranch[];
+  organizations: AclCatalogOrganization[];
+  departments: AclCatalogDepartment[];
+  security_levels: AclCatalogSecurityLevel[];
 }

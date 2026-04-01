@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useReadinessStore } from "@/stores/readiness";
 
 const auth = useAuthStore();
+const showAdmin = computed(() => auth.isAdmin);
 const readiness = useReadinessStore();
 const route = useRouter();
 const current = useRoute();
@@ -40,6 +41,7 @@ async function logout() {
         <el-menu-item index="/settings/models">模型设置</el-menu-item>
         <el-menu-item index="/settings/account">账户与权限</el-menu-item>
         <el-menu-item index="/settings/usage">用量统计</el-menu-item>
+        <el-menu-item v-if="showAdmin" index="/admin/system">系统管理</el-menu-item>
       </el-menu>
       <div class="user">
         <span v-if="auth.user" class="user-name">{{ auth.user.username }}</span>

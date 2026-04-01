@@ -1,22 +1,33 @@
 <script setup lang="ts">
-// 注册成功后与登录相同：拿 token 再进应用；可选填企业权限（与后端 RegisterBody 一致）
-import { reactive, ref } from "vue";
+// 注册成功后与登录相同：拿 token 再进应用；可选填企业权限（分行/密级/部门/组织，角色固定为 user）
+import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
+import { useAclCatalogOptions } from "@/composables/useAclCatalogOptions";
 import { useAuthStore, type RegisterAclPayload } from "@/stores/auth";
 
 const auth = useAuthStore();
 const router = useRouter();
+const {
+  branchSelectOptions,
+  orgSelectOptions,
+  deptSelectOptions,
+  securitySelectOptions,
+  fetchAcl,
+} = useAclCatalogOptions();
 
 const form = reactive({ username: "", password: "", password2: "" });
 const adv = reactive({
   branch: "",
-  role: "",
   security_level: undefined as number | undefined,
-  departmentsText: "",
+  departmentTags: [] as string[],
   org_id: "",
 });
 const loading = ref(false);
+
+onMounted(() => {
+  void fetchAcl();
+});
 
 async function submit() {
   if (form.password !== form.password2) {
@@ -27,12 +38,8 @@ async function submit() {
   try {
     const acl: RegisterAclPayload = {};
     if (adv.branch.trim()) acl.branch = adv.branch.trim();
-    if (adv.role.trim()) acl.role = adv.role.trim();
     if (adv.security_level != null) acl.security_level = adv.security_level;
-    const deptParts = adv.departmentsText
-      .split(/[,，;；\n]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const deptParts = adv.departmentTags.map((s) => String(s).trim()).filter(Boolean);
     if (deptParts.length) acl.departments = deptParts;
     if (adv.org_id.trim()) acl.org_id = adv.org_id.trim();
 
@@ -74,12 +81,24 @@ async function submit() {
         </el-form-item>
 
         <el-collapse class="reg-adv">
-          <el-collapse-item title="企业权限（可选，注册后也可在「账户与权限」修改）" name="adv">
+          <el-collapse-item title="企业权限（可选，与系统字典同步；注册后也可在「账户与权限」修改）" name="adv">
             <el-form-item label="分行">
-              <el-input v-model="adv.branch" placeholder="默认：公共" />
-            </el-form-item>
-            <el-form-item label="角色">
-              <el-input v-model="adv.role" placeholder="默认：user" />
+              <el-select
+                v-model="adv.branch"
+                class="w-full"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                placeholder="默认：公共"
+              >
+                <el-option
+                  v-for="o in branchSelectOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item label="密级上限">
               <el-select
@@ -88,22 +107,51 @@ async function submit() {
                 placeholder="默认：4"
                 class="w-full"
               >
-                <el-option :value="1" label="1 公开" />
-                <el-option :value="2" label="2 内部" />
-                <el-option :value="3" label="3 敏感" />
-                <el-option :value="4" label="4 机密" />
+                <el-option
+                  v-for="o in securitySelectOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
               </el-select>
             </el-form-item>
             <el-form-item label="部门">
-              <el-input
-                v-model="adv.departmentsText"
-                type="textarea"
-                :rows="2"
-                placeholder="多个部门用逗号分隔"
-              />
+              <el-select
+                v-model="adv.departmentTags"
+                class="w-full"
+                multiple
+                filterable
+                allow-create
+                default-first-option
+                collapse-tags
+                collapse-tags-tooltip
+                placeholder="多选或自定义"
+              >
+                <el-option
+                  v-for="o in deptSelectOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
+              </el-select>
             </el-form-item>
             <el-form-item label="组织 ID">
-              <el-input v-model="adv.org_id" placeholder="与共享知识库的组织 ID 一致" />
+              <el-select
+                v-model="adv.org_id"
+                class="w-full"
+                filterable
+                allow-create
+                default-first-option
+                clearable
+                placeholder="与共享知识库的组织编码一致"
+              >
+                <el-option
+                  v-for="o in orgSelectOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
+              </el-select>
             </el-form-item>
           </el-collapse-item>
         </el-collapse>

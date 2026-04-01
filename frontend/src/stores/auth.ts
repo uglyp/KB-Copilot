@@ -6,7 +6,6 @@ import type { MePatchResponse, MeUser } from "@/api/types";
 
 export interface RegisterAclPayload {
   branch?: string;
-  role?: string;
   security_level?: number;
   departments?: string[];
   org_id?: string | null;
@@ -33,8 +32,13 @@ export const useAuthStore = defineStore("auth", () => {
       security_level: data.security_level,
       departments: data.departments ?? [],
       org_id: data.org_id ?? null,
+      is_active: data.is_active ?? true,
     };
   }
+
+  const isAdmin = computed(
+    () => (user.value?.role || "").toLowerCase() === "admin" && (user.value?.is_active ?? true),
+  );
 
   async function fetchMe() {
     const { data } = await http.get<MeUser>("/auth/me");
@@ -44,7 +48,6 @@ export const useAuthStore = defineStore("auth", () => {
   async function patchMe(
     body: Partial<{
       branch: string;
-      role: string;
       security_level: number;
       departments: string[];
       org_id: string | null;
@@ -72,7 +75,6 @@ export const useAuthStore = defineStore("auth", () => {
     const payload: Record<string, unknown> = { username, password };
     if (acl) {
       if (acl.branch != null) payload.branch = acl.branch;
-      if (acl.role != null) payload.role = acl.role;
       if (acl.security_level != null) payload.security_level = acl.security_level;
       if (acl.departments != null) payload.departments = acl.departments;
       if (acl.org_id !== undefined) payload.org_id = acl.org_id;
@@ -94,6 +96,7 @@ export const useAuthStore = defineStore("auth", () => {
     token,
     user,
     isAuthenticated,
+    isAdmin,
     setToken,
     fetchMe,
     patchMe,
