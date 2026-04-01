@@ -1,0 +1,43 @@
+# GitHub 的 main 推送到 Gitee 的 main，v* 标签同步到 Gitee。需在仓库 Secrets 中配置：
+# GITEE_USERNAME、GITEE_TOKEN（私人令牌，含 projects）、GITEE_REPO（owner/repo）
+name: Mirror to Gitee
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Gitee
+        env:
+          GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPO: ${{ secrets.GITEE_REPO }}
+        run: |
+          set -e
+          if [ -z "${GITEE_USERNAME}" ] || [ -z "${GITEE_TOKEN}" ] || [ -z "${GITEE_REPO}" ]; then
+            echo "缺少 Secrets：GITEE_USERNAME、GITEE_TOKEN、GITEE_REPO"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add gitee "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/${GITEE_REPO}.git"
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            git push gitee HEAD:refs/heads/main
+            git push gitee --tags
+          elif echo "${GITHUB_REF}" | grep -q '^refs/tags/'; then
+            git push gitee "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          else
+            echo "未处理的 ref: ${GITHUB_REF}"
+            exit 1
+          fi
