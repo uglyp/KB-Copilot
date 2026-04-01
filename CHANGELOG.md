@@ -2,7 +2,7 @@
 
 本文件遵循用户可见的**语义化摘要**：重要功能、修复与破坏性变更。版本号与 [backend/pyproject.toml](backend/pyproject.toml)、前端 `package.json` 对齐时可在此同步更新。
 
-**自动维护：** 推送 `main` 后可用 Release Please 根据约定式提交打开「发布 PR」并更新本文件与后端版本，见 [docs/CHANGELOG_AUTOMATION.md](docs/CHANGELOG_AUTOMATION.md)。
+**自动维护：** 推送 `main` 后，GitHub Actions 工作流 **Release Please**（见 [`.github/workflows/release-please.yml`](.github/workflows/release-please.yml)）可根据约定式提交打开「发布 PR」，并更新本文件与后端版本。
 
 ## 未发布
 
@@ -14,7 +14,7 @@
 ### 变更
 
 - **企业 ACL**：`ENTERPRISE_ACL_ENABLED` 默认改为 **true**；RAG 拼上下文前**始终**按文档元数据做权限过滤（与知识库列表/下载一致）。仅当需兼容无 `branch`/`security_level` 字段的旧 Milvus 集合时，再在 `.env` 中设 `ENTERPRISE_ACL_ENABLED=false` 并处理向量数据迁移。
-- **文档**：[术语表与概念说明](docs/术语表与概念说明.md) 补充企业权限相关表字段说明。
+- **文档**：[术语表与概念说明.md](术语表与概念说明.md) 补充企业权限相关表字段说明。
 
 ## [0.6.0](https://github.com/uglyp/KB-Copilot/compare/v0.5.0...v0.6.0) (2026-04-01)
 
@@ -69,4 +69,4 @@
 - GitHub Actions CI：后端 `uv sync` 与导入校验，前端 `npm install` 与生产构建。
 - Issue 模板：缺陷报告与功能建议。
 - README 面向发现与协作的摘要、架构示意、Roadmap、目录与截图占位说明。
-- [docs/GITHUB_REPOSITORY_METADATA.md](docs/GITHUB_REPOSITORY_METADATA.md)：仓库 Description 与 Topics 的推荐文案（需在 GitHub About 中手动填写）。
+- 建议在 GitHub / Gitee 仓库 **About** 中填写与 README 一致的 **Description**，并添加 **Topics**（如 `rag`、`knowledge-base`、`milvus`、`fastapi`、`vue`、`self-hosted` 等）以利于检索发现。

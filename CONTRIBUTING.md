@@ -14,7 +14,7 @@
 
 ## 变更记录与发版
 
-约定式提交（如 `feat:`、`fix:`、`docs:`）推送到 `main` 后，工作流 **Release Please** 可自动汇总并打开更新 [CHANGELOG.md](CHANGELOG.md) 与 `backend/pyproject.toml` 版本的发布 PR。详见 [docs/CHANGELOG_AUTOMATION.md](docs/CHANGELOG_AUTOMATION.md)。
+约定式提交（如 `feat:`、`fix:`、`docs:`）推送到 `main` 后，工作流 **Release Please**（[`.github/workflows/release-please.yml`](.github/workflows/release-please.yml)）可自动汇总并打开更新 [CHANGELOG.md](CHANGELOG.md) 与 `backend/pyproject.toml` 版本的发布 PR。
 
 ## 提交代码
 
