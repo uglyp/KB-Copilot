@@ -4,6 +4,8 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![CI](https://github.com/uglyp/KB-Copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/uglyp/KB-Copilot/actions/workflows/ci.yml)
 
+**本项目为学习项目，在不断试错，调优，迭代，终极目标是做出企业级的项目效果**
+
 **KB-Copilot** 是一套可 **自托管** 的 **知识库问答（RAG）** 与 **流式对话** 系统：支持 **PDF / 文本** 与 **图片（OCR）** 入库，**Milvus** 向量检索，**FastAPI** 后端与 **Vue 3** 前端，对话通过 **SSE** 推送；可对接 **Ollama**、**DeepSeek** 等 **OpenAI 兼容** 的对话与向量 API。适用于团队内部文档检索、合规敏感场景下的 **企业级访问控制（ACL）** 原型与扩展。
 
 **检索友好关键词（中文）：** 知识库、RAG、检索增强生成、向量数据库、Milvus、embedding、分块、引用溯源、多模态 OCR、企业权限、分行密级、JWT、FastAPI、Vue3、Vite、TypeScript、自托管、开源 MIT。
