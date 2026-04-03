@@ -11,6 +11,9 @@ export const useReadinessStore = defineStore("readiness", () => {
   /** local | api | none */
   const embeddingSource = ref<string | null>(null);
   const missing = ref<string[]>([]);
+  /** 向量索引与当前嵌入配置不一致，建议管理员重建（见模型设置页） */
+  const embeddingIndexNeedsRebuild = ref<boolean | null>(null);
+  const embeddingIndexHints = ref<string[]>([]);
   const loading = ref(false);
 
   const ready = computed(() => chatReady.value);
@@ -24,11 +27,16 @@ export const useReadinessStore = defineStore("readiness", () => {
         embedding_ready?: boolean;
         embedding_source?: string;
         missing: string[];
+        embedding_index_needs_rebuild?: boolean;
+        embedding_index_hints?: string[];
       }>("/me/model-readiness");
       chatReady.value = data.chat_ready ?? data.ready;
       embeddingReady.value = data.embedding_ready ?? false;
       embeddingSource.value = data.embedding_source ?? null;
       missing.value = data.missing ?? [];
+      embeddingIndexNeedsRebuild.value =
+        data.embedding_index_needs_rebuild ?? false;
+      embeddingIndexHints.value = data.embedding_index_hints ?? [];
     } finally {
       loading.value = false;
     }
@@ -39,6 +47,8 @@ export const useReadinessStore = defineStore("readiness", () => {
     embeddingReady.value = null;
     embeddingSource.value = null;
     missing.value = [];
+    embeddingIndexNeedsRebuild.value = null;
+    embeddingIndexHints.value = [];
   }
 
   return {
@@ -47,6 +57,8 @@ export const useReadinessStore = defineStore("readiness", () => {
     embeddingReady,
     embeddingSource,
     missing,
+    embeddingIndexNeedsRebuild,
+    embeddingIndexHints,
     loading,
     fetchReadiness,
     reset,

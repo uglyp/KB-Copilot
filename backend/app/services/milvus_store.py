@@ -113,6 +113,17 @@ def get_milvus() -> MilvusClient:
         return _client
 
 
+def get_collection_vector_dim() -> int | None:
+    """若当前配置的 Milvus 集合已存在，返回其 vector 字段维度；否则 None。"""
+    settings = get_settings()
+    client = get_milvus()
+    name = settings.milvus_collection
+    if not client.has_collection(name):
+        return None
+    info = client.describe_collection(name)
+    return _vector_dim_from_describe(info)
+
+
 def ensure_collection(dim: int) -> None:
     """若集合不存在则创建；已存在则校验向量维度与 `dim` 一致；企业 ACL 模式下校验标量字段齐全。"""
     if dim < 1:

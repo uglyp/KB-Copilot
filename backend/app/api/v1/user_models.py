@@ -24,6 +24,7 @@ from app.services.default_llm_seed import (
     ensure_embedding_api_auto_seed,
     ensure_ollama_chat_seed,
 )
+from app.services.embedding_index_state import light_mismatch_hints
 from app.services.model_readiness import (
     is_chat_ready,
     is_embedding_ready,
@@ -175,6 +176,7 @@ async def model_readiness(
         if settings.use_local_embedding
         else ("api" if emb_ok else "none")
     )
+    idx_need, idx_hints = await light_mismatch_hints(db, user.id)
     return {
         "ready": chat_ok,
         "chat_ready": chat_ok,
@@ -183,6 +185,8 @@ async def model_readiness(
         "full_stack_ready": full_ok,
         "missing": missing,
         "missing_full_stack": missing_full,
+        "embedding_index_needs_rebuild": idx_need,
+        "embedding_index_hints": idx_hints,
     }
 
 

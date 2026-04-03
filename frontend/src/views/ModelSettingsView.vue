@@ -1,16 +1,36 @@
 <script setup lang="ts">
 // OpenAI 兼容提供商：区分「远程 API」与「本地 Ollama」，chat / embedding 行编辑
 import { computed, onMounted, reactive, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import axios from "axios";
 import { http } from "@/api/http";
 import { messageFromHttpBody } from "@/utils/chatError";
 import type { LLMModelRow, ProviderOut } from "@/api/types";
+import { useAuthStore } from "@/stores/auth";
 import { useReadinessStore } from "@/stores/readiness";
 
+const auth = useAuthStore();
 const readiness = useReadinessStore();
 const list = ref<ProviderOut[]>([]);
 const loading = ref(false);
+const rebuildBusy = ref(false);
+
+/** GET /me/embedding-index/status */
+interface EmbeddingIndexStatus {
+  milvus_collection: string;
+  use_local_embedding: boolean;
+  expected_fingerprint: string;
+  stored_fingerprint: string | null;
+  stored_vector_dim: number | null;
+  stored_updated_at: string | null;
+  milvus_vector_dim: number | null;
+  probe_vector_dim: number | null;
+  probe_error: string | null;
+  embedding_index_needs_rebuild: boolean;
+  reasons: string[];
+}
+
+const indexStatus = ref<EmbeddingIndexStatus | null>(null);
 
 const dialogVisible = ref(false);
 const editingId = ref<number | null>(null);
@@ -73,8 +93,56 @@ async function load() {
     const { data } = await http.get<ProviderOut[]>("/me/providers");
     list.value = data;
     await readiness.fetchReadiness();
+    try {
+      const { data: idx } = await http.get<EmbeddingIndexStatus>(
+        "/me/embedding-index/status",
+      );
+      indexStatus.value = idx;
+    } catch {
+      indexStatus.value = null;
+    }
   } finally {
     loading.value = false;
+  }
+}
+
+async function rebuildEmbeddingIndex() {
+  if (!auth.isAdmin) return;
+  try {
+    await ElMessageBox.confirm(
+      "将删除当前 Milvus 集合（实例级）并对所有「就绪」文档重新向量化。文档多时需要较长时间，期间请避免并发大批量上传。是否继续？",
+      "重建向量索引",
+      { type: "warning", confirmButtonText: "确认重建", cancelButtonText: "取消" },
+    );
+  } catch {
+    return;
+  }
+  rebuildBusy.value = true;
+  try {
+    const { data } = await http.post<{
+      documents_total: number;
+      documents_succeeded: number;
+      documents_failed: number;
+      last_error_hint?: string;
+    }>("/me/embedding-index/rebuild", { confirm: true });
+    ElMessage.success(
+      `重建完成：成功 ${data.documents_succeeded} / ${data.documents_total} 个文档`,
+    );
+    if (data.documents_failed > 0 && data.last_error_hint) {
+      ElMessage.warning(`部分失败：${data.last_error_hint}`);
+    }
+    await load();
+  } catch (e) {
+    let raw = e instanceof Error ? e.message : String(e);
+    if (axios.isAxiosError(e) && e.response?.data !== undefined) {
+      raw =
+        typeof e.response.data === "string"
+          ? e.response.data
+          : JSON.stringify(e.response.data);
+    }
+    ElMessage.error(messageFromHttpBody(raw));
+  } finally {
+    rebuildBusy.value = false;
   }
 }
 
@@ -286,6 +354,67 @@ onMounted(load);
       <strong class="text-foreground">远程 API</strong>：同一提供商可同时配置对话与向量模型（用于知识库）。
       <strong class="text-foreground">本地 Ollama</strong>：通常只需对话模型；向量可在环境变量中配置本地 fastembed 或其它远程 Embedding 提供商。
     </p>
+
+    <el-alert
+      v-if="indexStatus?.embedding_index_needs_rebuild"
+      type="warning"
+      show-icon
+      :closable="false"
+      class="rounded-xl"
+      title="向量索引需要重建"
+    >
+      <template #default>
+        <ul class="list-inside list-disc text-sm leading-relaxed">
+          <li v-for="(t, i) in indexStatus?.reasons ?? []" :key="'r' + i">{{ t }}</li>
+        </ul>
+        <p v-if="indexStatus?.probe_error" class="mt-2 text-xs text-amber-900/80">
+          嵌入探测：{{ indexStatus.probe_error }}
+        </p>
+        <p class="mt-2 text-xs opacity-90">
+          集合 {{ indexStatus?.milvus_collection }} · Milvus 维度
+          {{ indexStatus?.milvus_vector_dim ?? "（无集合）" }} · 当前模型输出维度
+          {{ indexStatus?.probe_vector_dim ?? "—" }}
+        </p>
+        <el-button
+          v-if="auth.isAdmin"
+          type="primary"
+          class="mt-3 !rounded-lg"
+          :loading="rebuildBusy"
+          @click="rebuildEmbeddingIndex"
+        >
+          重建向量索引（管理员）
+        </el-button>
+        <p v-else class="mt-2 text-xs">请联系管理员在模型设置页执行重建。</p>
+      </template>
+    </el-alert>
+
+    <el-alert
+      v-else-if="indexStatus && !indexStatus.embedding_index_needs_rebuild"
+      type="success"
+      show-icon
+      :closable="false"
+      class="rounded-xl"
+      title="向量索引与当前嵌入配置一致"
+    >
+      <template #default>
+        <p class="text-xs">
+          指纹 {{ indexStatus.expected_fingerprint }}
+          <span v-if="indexStatus.stored_fingerprint">
+            · 已记录 {{ indexStatus.stored_fingerprint }}
+          </span>
+        </p>
+        <el-button
+          v-if="auth.isAdmin"
+          type="default"
+          size="small"
+          class="mt-2 !rounded-lg"
+          :loading="rebuildBusy"
+          @click="rebuildEmbeddingIndex"
+        >
+          仍要全量重建（管理员）
+        </el-button>
+      </template>
+    </el-alert>
 
     <div class="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <el-table v-loading="loading" :data="list" stripe class="kb-table w-full">

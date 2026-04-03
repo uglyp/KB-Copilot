@@ -126,6 +126,12 @@ async def process_document_ingestion(session: AsyncSession, doc_id: int) -> None
         doc.status = "ready"
         doc.error_message = None
         await session.flush()
+
+        from app.services.embedding_index_state import sync_meta_after_successful_ingest
+
+        await sync_meta_after_successful_ingest(
+            session, kb_owner_user_id=kb.user_id, vector_dim=len(embeddings[0])
+        )
     except Exception as e:  # noqa: BLE001
         err = str(e)[:2000]
         logger.exception("文档 id=%s 入库失败", doc_id)

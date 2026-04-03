@@ -349,3 +349,19 @@ class SysSecurityLevel(Base):
     label: Mapped[str] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class EmbeddingIndexMeta(Base):
+    """单例行（id=1）：上次成功入库时采用的嵌入指纹与向量维度。
+
+    切换 `USE_LOCAL_EMBEDDING` / 默认 embedding 模型后若与指纹不一致，应提示管理员重建 Milvus 索引。
+    """
+
+    __tablename__ = "embedding_index_meta"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    fingerprint: Mapped[str] = mapped_column(String(512))
+    vector_dim: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
