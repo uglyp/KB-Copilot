@@ -47,6 +47,7 @@ type DiagnosticMeta = {
 const CHAT_MODEL_LS = "org_copilot_chat_model_id";
 /** 旧版 localStorage 键，启动时迁移至 CHAT_MODEL_LS */
 const LEGACY_CHAT_MODEL_LS = "kb_copilot_chat_model_id";
+const CHAT_MODEL_BY_CONV_LS = "org_copilot_chat_model_by_conv";
 
 const auth = useAuthStore();
 const route = useRoute();
@@ -71,6 +72,8 @@ const latestDiagnostic = ref<DiagnosticMeta>({
 
 const selectedChatModelKey = ref("");
 const chatModels = ref<ChatModelOptionOut[]>([]);
+const chatModelByConv = ref<Record<string, string>>({});
+let syncingModelSelection = false;
 
 const senderRef = ref<{ clear: () => void } | null>(null);
 
@@ -187,9 +190,39 @@ const thoughtChainItems = computed(() => {
   }));
 });
 
+function getDefaultChatModelKey() {
+  const def = chatModels.value.find((m) => m.is_default);
+  const fallback = def ?? chatModels.value[0];
+  return fallback ? String(fallback.id) : "";
+}
+
+function persistChatModelByConv() {
+  localStorage.setItem(CHAT_MODEL_BY_CONV_LS, JSON.stringify(chatModelByConv.value));
+}
+
+function applyChatModelForConversation(convId: number | null) {
+  if (!chatModels.value.length) {
+    syncingModelSelection = true;
+    selectedChatModelKey.value = "";
+    syncingModelSelection = false;
+    return;
+  }
+  const convKey = convId != null ? String(convId) : "";
+  const saved = convKey ? chatModelByConv.value[convKey] : "";
+  const validSaved = saved && chatModels.value.some((m) => String(m.id) === saved);
+  syncingModelSelection = true;
+  selectedChatModelKey.value = validSaved ? saved : getDefaultChatModelKey();
+  syncingModelSelection = false;
+}
+
 watch(selectedChatModelKey, (v) => {
-  if (v === "") localStorage.removeItem(CHAT_MODEL_LS);
-  else localStorage.setItem(CHAT_MODEL_LS, v);
+  if (syncingModelSelection) return;
+  const convId = activeConvId.value;
+  if (convId == null) return;
+  const key = String(convId);
+  if (!v) delete chatModelByConv.value[key];
+  else chatModelByConv.value[key] = v;
+  persistChatModelByConv();
 });
 
 function isLastAssistantIndex(i: number) {
@@ -260,22 +293,27 @@ async function loadConvs() {
 async function loadChatModels() {
   try {
     const legacy = localStorage.getItem(LEGACY_CHAT_MODEL_LS);
-    if (legacy && !localStorage.getItem(CHAT_MODEL_LS)) {
+    const { data } = await http.get<ChatModelOptionOut[]>("/me/chat-models");
+    chatModels.value = data;
+    try {
+      const rawMap = localStorage.getItem(CHAT_MODEL_BY_CONV_LS);
+      const parsed = rawMap ? (JSON.parse(rawMap) as Record<string, string>) : {};
+      chatModelByConv.value = Object.fromEntries(
+        Object.entries(parsed).filter(([_, modelId]) =>
+          data.some((m) => String(m.id) === String(modelId))
+        )
+      );
+    } catch {
+      chatModelByConv.value = {};
+    }
+    if (legacy && data.some((m) => String(m.id) === legacy)) {
       localStorage.setItem(CHAT_MODEL_LS, legacy);
       localStorage.removeItem(LEGACY_CHAT_MODEL_LS);
     }
-    const { data } = await http.get<ChatModelOptionOut[]>("/me/chat-models");
-    chatModels.value = data;
-    const saved = localStorage.getItem(CHAT_MODEL_LS);
-    if (saved && data.some((m) => m.id === Number(saved))) {
-      selectedChatModelKey.value = saved;
-    } else {
-      const def = data.find((m) => m.is_default);
-      const fallback = def ?? data[0];
-      selectedChatModelKey.value = fallback ? String(fallback.id) : "";
-    }
+    applyChatModelForConversation(activeConvId.value);
   } catch {
     chatModels.value = [];
+    chatModelByConv.value = {};
   }
 }
 
@@ -320,6 +358,7 @@ async function createConv() {
 async function selectConv(id: number) {
   activeConvId.value = id;
   activeConv.value = convs.value.find((c) => c.id === id) ?? null;
+  applyChatModelForConversation(id);
   await loadMessages(id);
 }
 
@@ -348,6 +387,8 @@ async function deleteConv(id: number) {
   try {
     await http.delete(`/conversations/${id}`);
     convs.value = convs.value.filter((c) => c.id !== id);
+    delete chatModelByConv.value[String(id)];
+    persistChatModelByConv();
     ElMessage.success("已删除");
     if (activeConvId.value === id) {
       if (convs.value.length) {
