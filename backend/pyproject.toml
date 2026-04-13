@@ -31,6 +31,10 @@ dependencies = [
     "Pillow>=10.0.0",
     # milvus-lite 仍依赖 pkg_resources；setuptools 81+ 起弃用/移除趋势，锁在 80.x 以兼容 Lite
     "setuptools>=70.0.0,<81",
+    "llama-index-core>=0.12.0,<0.13",
+    "llama-index-llms-openai>=0.3.0,<0.4",
+    "llama-index-embeddings-openai>=0.3.0,<0.4",
+    "sqlparse>=0.5.0",
 ]
 
 [project.optional-dependencies]

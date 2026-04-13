@@ -100,6 +100,21 @@ class Settings(BaseSettings):
     # 对话 RAG：向量召回条数（略大有利于「技术栈/语言」等分散在表格中的描述）
     rag_top_k: int = 12
 
+    # ---------- LlamaIndex 业务库问答（统计 + 检索副本向量检索，可选）----------
+    # 同步 URL：mysql+pymysql:// 或 postgresql+psycopg://，建议使用仅对 v_* 视图与 analytics_* 表有 SELECT 的只读账号（或只读从库）。
+    # 未设置且 LLAMAINDEX_ENABLED=true 时，回退为 sync_database_url()（与 DATABASE_URL 同库同步驱动），便于本地开发。
+    llamaindex_enabled: bool = False
+    llamaindex_database_url: str | None = None
+    # 向量索引持久化目录（不进 OLTP）；同步写表使用应用库 sync_database_url，见脚本说明
+    llamaindex_vector_persist_dir: str = "./data/llama_analytics_index"
+    llamaindex_sync_batch_size: int = 200
+    llamaindex_message_text_max_len: int = 2000
+    # 命中这些词时尝试拉取系统数据上下文（与 NL2SQL/向量并行）
+    llamaindex_intent_keywords: str = (
+        "用户,统计,多少,知识库,会话,消息,问答,记录,列表,总数,条数,"
+        "明细,token,用量,轮次,模型,消耗,在线,调用,embedding"
+    )
+
     # 企业 ACL：默认开启。为 true 时 Milvus 集合须含 branch/security_level 标量；旧向量库无此字段时需换新 MILVUS_COLLECTION 或清空后重入库。可设 false 退回仅 kb_id 过滤（不推荐生产）。
     enterprise_acl_enabled: bool = True
     # 与文档权限中「公共」分行标签一致，须与入库文档默认值一致
@@ -173,6 +188,26 @@ class Settings(BaseSettings):
             if url.startswith(async_prefix):
                 return sync_prefix + url[len(async_prefix) :]
         raise RuntimeError("sync_database_url：未识别的 database_url（校验应已拦截）")
+
+    def llamaindex_effective_database_url(self) -> str | None:
+        """LlamaIndex 只读连接：显式 URL 优先，否则在开启功能时回退为应用库同步 URL。"""
+        if self.llamaindex_database_url and self.llamaindex_database_url.strip():
+            return self.llamaindex_database_url.strip()
+        if self.llamaindex_enabled:
+            return self.sync_database_url()
+        return None
+
+    @field_validator("llamaindex_database_url")
+    @classmethod
+    def llamaindex_url_sync_driver(cls, v: str | None) -> str | None:
+        if v is None or not str(v).strip():
+            return None
+        s = str(v).strip()
+        if s.startswith("mysql+pymysql://") or s.startswith("postgresql+psycopg://"):
+            return s
+        raise ValueError(
+            "LLAMAINDEX_DATABASE_URL 须为同步驱动：mysql+pymysql:// 或 postgresql+psycopg://"
+        )
 
 
 @lru_cache

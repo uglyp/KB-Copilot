@@ -37,6 +37,12 @@ FastAPI 应用；依赖由 **`pyproject.toml`** 声明，**`uv.lock`** 锁定版
 
 复制 `backend/.env.example` 为 **`backend/.env`**（与 `app/` 同级）。说明见仓库根目录 `README.md` 后端章节。
 
+### LlamaIndex 业务库问答（可选）
+
+- 迁移需包含 `v_*` 脱敏视图与 `analytics_*` 表；`alembic upgrade head` 后执行。
+- 设置 `LLAMAINDEX_ENABLED=true`；`LLAMAINDEX_DATABASE_URL` 为 **`mysql+pymysql://`** 或 **`postgresql+psycopg://`** 只读账号（可省略，则回退为应用库同步 URL）。仅读视图与 `analytics_search_docs` 的示例授权见 `scripts/grant_llama_readonly.example.sql`。
+- 检索副本与向量索引：在 `backend/` 下运行 `uv run python scripts/sync_analytics_index.py`（使用应用库同步 URL **写入** `analytics_*`，与只读账号分离）。向量持久化目录默认 `LLAMAINDEX_VECTOR_PERSIST_DIR=./data/llama_analytics_index`。
+
 ## 企业权限（MySQL / PostgreSQL 通用）
 
 - 迁移 `alembic upgrade head` 后为 `users` / `documents` / `knowledge_bases` 增加分行、密级、部门、组织共享等字段；**行级控制由应用层 SQLAlchemy 条件实现**，与 PostgreSQL RLS 等价目标一致，但不依赖 RLS。

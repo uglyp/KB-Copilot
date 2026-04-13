@@ -36,7 +36,7 @@ import { messageFromHttpBody } from "@/utils/chatError";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
-type StreamPhase = "embedding" | "searching" | "generating";
+type StreamPhase = "embedding" | "searching" | "analytics" | "generating";
 type DiagnosticMeta = {
   requestId: string;
   conversationId: number | null;
@@ -62,6 +62,8 @@ const messages = ref<ChatMsg[]>([]);
 const inputText = ref("");
 const sending = ref(false);
 const streamPhase = ref<StreamPhase | null>(null);
+/** 本轮是否收到过后端的 analytics 阶段（LlamaIndex 业务库）；未收到则进度链保持三步 */
+const sawAnalyticsPhase = ref(false);
 const latestRequestId = ref("");
 const latestDiagnostic = ref<DiagnosticMeta>({
   requestId: "",
@@ -156,29 +158,38 @@ const conversationActiveStyle = {
 
 const thoughtChainItems = computed(() => {
   if (!sending.value || !streamPhase.value) return [];
-  const phases: { id: string; title: string; line: string; key: StreamPhase }[] =
-    [
-      {
-        id: "p1",
-        key: "embedding",
-        title: "问题向量化",
-        line: "Embedding 用户问题",
-      },
-      {
-        id: "p2",
-        key: "searching",
-        title: "知识库检索",
-        line: "在向量库中召回 Top-K 片段",
-      },
-      {
-        id: "p3",
-        key: "generating",
-        title: "模型生成",
-        line: "拼接上下文并流式输出",
-      },
-    ];
-  const order: StreamPhase[] = ["embedding", "searching", "generating"];
+  const base: { id: string; title: string; line: string; key: StreamPhase }[] = [
+    {
+      id: "p1",
+      key: "embedding",
+      title: "问题向量化",
+      line: "Embedding 用户问题",
+    },
+    {
+      id: "p2",
+      key: "searching",
+      title: "知识库检索",
+      line: "在向量库中召回 Top-K 片段",
+    },
+    {
+      id: "p2a",
+      key: "analytics",
+      title: "系统数据",
+      line: "只读视图统计与检索副本语义检索（可选）",
+    },
+    {
+      id: "p3",
+      key: "generating",
+      title: "模型生成",
+      line: "拼接上下文并流式输出",
+    },
+  ];
+  const phases = sawAnalyticsPhase.value
+    ? base
+    : base.filter((p) => p.key !== "analytics");
+  const order = phases.map((p) => p.key);
   const cur = order.indexOf(streamPhase.value);
+  if (cur < 0) return [];
   return phases.slice(0, cur + 1).map((p, idx) => ({
     id: p.id,
     title: p.title,
@@ -478,6 +489,7 @@ async function sendMessage(text?: string) {
   inputText.value = "";
   senderRef.value?.clear();
   streamPhase.value = null;
+  sawAnalyticsPhase.value = false;
 
   messages.value.push({ role: "user", content: raw });
   messages.value.push({ role: "assistant", content: "" });
@@ -520,7 +532,10 @@ async function sendMessage(text?: string) {
           const phase = (ev as { phase?: string }).phase;
           if (phase === "embedding") streamPhase.value = "embedding";
           else if (phase === "searching") streamPhase.value = "searching";
-          else if (phase === "generating") streamPhase.value = "generating";
+          else if (phase === "analytics") {
+            sawAnalyticsPhase.value = true;
+            streamPhase.value = "analytics";
+          } else if (phase === "generating") streamPhase.value = "generating";
           /* 进度由 ThoughtChain 展示，勿再写入 assistant 文案，避免与占位区重复 */
           if (!acc) last.content = "";
         } else if (ev.type === "done") {
@@ -558,6 +573,7 @@ async function sendMessage(text?: string) {
   } finally {
     sending.value = false;
     streamPhase.value = null;
+    sawAnalyticsPhase.value = false;
   }
 }
 

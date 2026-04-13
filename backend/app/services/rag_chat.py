@@ -21,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.entities import Chunk, LlmUsageRecord, Message, User
+from app.services.llama_analytics.intent import should_run_llama_analytics
+from app.services.llama_analytics.router import build_analytics_context_sync
 from app.services.permissions import (
     document_visible_to,
     is_user_admin,
@@ -250,6 +252,26 @@ async def stream_chat_reply(
                 "(当前未配置向量能力，无法检索知识库；请直接根据常识回答用户问题，并说明无法访问知识库。)"
             )
 
+    analytics_block = ""
+    if settings.llamaindex_enabled and should_run_llama_analytics(user_text, settings):
+        yield _sse({"type": "status", "phase": "analytics"})
+        try:
+            analytics_block = await asyncio.to_thread(
+                build_analytics_context_sync,
+                user_id=user_id,
+                is_admin=is_user_admin(acl_user),
+                user_text=user_text,
+                emb_cfg=emb_cfg,
+                chat_cfg=chat_cfg,
+                settings=settings,
+            )
+        except Exception:
+            logger.exception(
+                "llama_analytics_failed request_id=%s conversation_id=%s",
+                request_id or "-",
+                conversation_id,
+            )
+
     history_msgs = await _load_history(
         session, conversation_id, limit=10, before_message_id=user_message_id
     )
@@ -261,6 +283,8 @@ async def stream_chat_reply(
         "不要编造片段中不存在的事实。"
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    if analytics_block:
+        messages.append({"role": "system", "content": analytics_block})
     messages.append({"role": "system", "content": "知识库片段：\n" + "\n\n".join(context_parts)})
     for m in history_msgs:
         messages.append({"role": m.role, "content": m.content})

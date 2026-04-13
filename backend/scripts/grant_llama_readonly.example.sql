@@ -1,0 +1,23 @@
+-- 示例：为 LlamaIndex 只读账号授权（请勿对主库使用 super 账号）
+-- 根据实际库名、用户名、主机名替换 `org_copilot`、`llama_ro`、`%`。
+--
+-- MySQL 8+（在管理员会话执行）：
+-- CREATE USER IF NOT EXISTS 'llama_ro'@'%' IDENTIFIED BY '强密码';
+-- GRANT SELECT ON org_copilot.v_users_public TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.v_knowledge_bases_catalog TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.v_conversations_summary TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.v_documents_catalog TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.v_messages_for_analytics TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.v_llm_usage_records_public TO 'llama_ro'@'%';
+-- GRANT SELECT ON org_copilot.analytics_search_docs TO 'llama_ro'@'%';
+-- 若启用「普通用户用量明细」参数化统计（按用户 id 过滤 llm_usage_records），只读账号需能读该表，且生产强烈建议用 PG RLS 或仍使用应用库账号而非全表可读只读用户。
+-- FLUSH PRIVILEGES;
+--
+-- 同步任务写入 analytics_* 须使用具备 INSERT/UPDATE 的应用账号或单独 DML 账号，勿与 llama_ro 混用。
+--
+-- PostgreSQL（示例）：
+-- CREATE ROLE llama_ro LOGIN PASSWORD '强密码';
+-- GRANT CONNECT ON DATABASE org_copilot TO llama_ro;
+-- GRANT USAGE ON SCHEMA public TO llama_ro;
+-- GRANT SELECT ON ALL TABLES IN SCHEMA public TO llama_ro;
+-- 若需最小权限，请仅对上文 v_* 与 analytics_search_docs 逐张 GRANT SELECT，而非整库。

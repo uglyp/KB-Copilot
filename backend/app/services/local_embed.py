@@ -55,6 +55,13 @@ def _embed_sync(texts: list[str]) -> list[list[float]]:
     return [[float(x) for x in emb] for emb in model.embed(texts)]
 
 
+def embed_texts_local_sync(texts: list[str]) -> list[list[float]]:
+    """同步版本地向量，供 LlamaIndex 索引构建等非 async 路径使用。"""
+    if not texts:
+        return []
+    return _embed_sync(texts)
+
+
 async def embed_texts_local(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []

@@ -20,7 +20,7 @@ export interface SseError {
   code?: string;
 }
 
-/** 后端阶段提示：embedding → searching → generating */
+/** 后端阶段提示：embedding → searching → analytics（可选）→ generating */
 export interface SseStatus {
   type: "status";
   phase: string;
