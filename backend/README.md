@@ -39,6 +39,7 @@ FastAPI 应用；依赖由 **`pyproject.toml`** 声明，**`uv.lock`** 锁定版
 
 ### LlamaIndex 业务库问答（可选）
 
+- **完整设计与实现说明**（架构、三条检索路径、同步与安全）：仓库根目录 [`docs/llama-index-analytics.md`](../docs/llama-index-analytics.md)。
 - 迁移需包含 `v_*` 脱敏视图与 `analytics_*` 表；`alembic upgrade head` 后执行。
 - 设置 `LLAMAINDEX_ENABLED=true`；`LLAMAINDEX_DATABASE_URL` 为 **`mysql+pymysql://`** 或 **`postgresql+psycopg://`** 只读账号（可省略，则回退为应用库同步 URL）。仅读视图与 `analytics_search_docs` 的示例授权见 `scripts/grant_llama_readonly.example.sql`。
 - 检索副本与向量索引：在 `backend/` 下运行 `uv run python scripts/sync_analytics_index.py`（使用应用库同步 URL **写入** `analytics_*`，与只读账号分离）。向量持久化目录默认 `LLAMAINDEX_VECTOR_PERSIST_DIR=./data/llama_analytics_index`。
